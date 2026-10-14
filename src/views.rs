@@ -22,6 +22,95 @@ pub struct RowMode {
     pub playlist: Option<u64>,
     /// Rows can be dragged up and down to set your own order (Songs list).
     pub reorder: bool,
+    /// Show when each song was added (Songs list).
+    pub added: bool,
+    /// Every song here is by this artist (album and artist pages): don't repeat the name on
+    /// each row unless a song is by someone else.
+    pub one_artist: Option<u64>,
+    /// Show the position number (off for search results, where the order isn't a list).
+    pub numbers: bool,
+}
+
+impl RowMode {
+    pub fn list() -> Self {
+        Self { art: true, album_col: true, track_numbers: false, playlist: None, reorder: false, added: false, one_artist: None, numbers: true }
+    }
+}
+
+/// Where each column of a song list sits. The header and every row use the same numbers, so
+/// they always line up.
+#[derive(Clone, Copy)]
+struct Cols {
+    num: f32,
+    art: Option<f32>,
+    text: f32,
+    title_w: f32,
+    album: Option<(f32, f32)>,
+    added: Option<(f32, f32)>,
+    more: f32,
+    heart: f32,
+    dur_right: f32,
+}
+
+fn song_cols(left: f32, right: f32, mode: RowMode) -> Cols {
+    let (art, text) = if mode.art { (Some(left + 44.0), left + 44.0 + 40.0 + S3) } else { (None, left + 48.0) };
+    let more = right - 116.0;
+    let heart = right - 82.0;
+    let w = right - left;
+    // Text columns end before the hover buttons (more and love) start.
+    let mut end = more - 24.0;
+    let added = if mode.added && w > if mode.album_col { 900.0 } else { 600.0 } {
+        let x = end - 104.0;
+        end = x - S4;
+        Some((x, 104.0))
+    } else {
+        None
+    };
+    let album = if mode.album_col && w > 720.0 {
+        let x = text + (end - text) * 0.52;
+        let a = (x, end - x);
+        end = x - S4;
+        Some(a)
+    } else {
+        None
+    };
+    Cols { num: left + 22.0, art, text, title_w: end - text, album, added, more, heart, dur_right: right - 12.0 }
+}
+
+/// "Today", "Yesterday", "3 days ago", "2 weeks ago", then the date ("12 Mar", "12 Mar 2025").
+fn when_added(secs: u64) -> String {
+    if secs == 0 {
+        return String::new();
+    }
+    let now = crate::store::now_secs();
+    let days = now.saturating_sub(secs) / 86_400;
+    match days {
+        0 => "Today".into(),
+        1 => "Yesterday".into(),
+        2..=6 => format!("{days} days ago"),
+        7..=13 => "1 week ago".into(),
+        14..=29 => format!("{} weeks ago", days / 7),
+        _ => {
+            let (y, m, d) = civil_from_days((secs / 86_400) as i64);
+            let (ny, _, _) = civil_from_days((now / 86_400) as i64);
+            const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            let mon = MONTHS[(m as usize).clamp(1, 12) - 1];
+            if y == ny { format!("{d} {mon}") } else { format!("{d} {mon} {y}") }
+        }
+    }
+}
+
+/// Days since 1970-01-01 to (year, month, day). Howard Hinnant's algorithm.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
 const MENU_W: f32 = 236.0;
@@ -172,6 +261,7 @@ impl App {
             w::vgradient(ui.painter(), wr, R_LG, stops);
         }
 
+        self.sticky_cols = false;
         let now = ctx.input(|i| i.time);
         let t = ((now - self.route_t) as f32 / T).clamp(0.0, 1.0);
         let a = egui::emath::easing::cubic_out(t);
@@ -214,6 +304,12 @@ impl App {
                 egui::CornerRadius { nw: R_LG as u8, ne: R_LG as u8, sw: 0, se: 0 },
                 with_alpha(c, solid),
             );
+            // A soft shadow so the list reads as passing under the bar, not cut off by it.
+            // (Pinned column titles draw their own, lower down.)
+            if !self.sticky_cols {
+                let sh = Rect::from_min_size(bar.left_bottom(), vec2(bar.width(), 10.0));
+                w::vgradient(ui.painter(), sh, 0.0, &[(0.0, with_alpha(Color32::BLACK, 0.28 * solid)), (1.0, with_alpha(Color32::BLACK, 0.0))]);
+            }
         }
         let mut x = bar.left() + PAD_X - 4.0;
         for (icon, enabled, action, tip) in [
@@ -284,15 +380,49 @@ impl App {
         let y = rect.center().y;
         let left = rect.left() + PAD_X - S2;
         let right = rect.right() - PAD_X + S2;
-        w::text(p, pos2(left + 22.0, y), Align2::CENTER_CENTER, "#", small(), TEXT_3, 30.0);
-        let title_x = left + if mode.art { 44.0 + 40.0 + S3 - 40.0 } else { 44.0 };
-        w::text(p, pos2(title_x + if mode.art { 0.0 } else { 0.0 }, y), Align2::LEFT_CENTER, "Title", small(), TEXT_3, 200.0);
-        if mode.album_col && rect.width() > 760.0 {
-            let ax = left + (right - left) * 0.55;
-            w::text(p, pos2(ax, y), Align2::LEFT_CENTER, "Album", small(), TEXT_3, 200.0);
+        let c = song_cols(left, right, mode);
+        w::text(p, pos2(c.num, y), Align2::CENTER_CENTER, "#", small(), TEXT_3, 30.0);
+        w::text(p, pos2(c.art.unwrap_or(c.text), y), Align2::LEFT_CENTER, "Title", small(), TEXT_3, 200.0);
+        if let Some((x, w)) = c.album {
+            w::text(p, pos2(x, y), Align2::LEFT_CENTER, "Album", small(), TEXT_3, w);
         }
-        icons::glyph(p, pos2(right - 34.0, y), icons::CLOCK, 14.0, TEXT_3);
+        if let Some((x, w)) = c.added {
+            w::text(p, pos2(x, y), Align2::LEFT_CENTER, "Date added", small(), TEXT_3, w);
+        }
+        // The clock's right edge lines up with the durations.
+        icons::glyph(p, pos2(c.dur_right - 7.0, y), icons::CLOCK, 14.0, TEXT_3);
         p.line_segment([pos2(left, rect.bottom() - 0.5), pos2(right, rect.bottom() - 0.5)], Stroke::new(1.0, HAIRLINE));
+    }
+
+    /// Once the column titles scroll up to the top bar, pin them under it.
+    fn sticky_columns(&mut self, ui: &Ui, off: f32, header_h: f32, mode: RowMode) {
+        if off < header_h - 32.0 {
+            return;
+        }
+        let page = ui.max_rect();
+        let r = Rect::from_min_size(pos2(page.left(), page.top() + TOPBAR_H), vec2(page.width(), 36.0));
+        let c = self.page_wash().map(|c| lerp_color(c, PANEL, 0.35)).unwrap_or(PANEL);
+        ui.painter().rect_filled(r, 0.0, c);
+        self.column_header(ui, r, mode);
+        let sh = Rect::from_min_size(r.left_bottom(), vec2(r.width(), 10.0));
+        w::vgradient(ui.painter(), sh, 0.0, &[(0.0, with_alpha(Color32::BLACK, 0.28)), (1.0, with_alpha(Color32::BLACK, 0.0))]);
+        self.sticky_cols = true;
+    }
+
+    /// Whether enough songs in a list have an album name to make the Album column worth showing.
+    pub fn list_has_albums(&self, ids: &[u64]) -> bool {
+        if ids.is_empty() {
+            return false;
+        }
+        let step = (ids.len() / 300).max(1);
+        let (mut seen, mut with) = (0usize, 0usize);
+        for id in ids.iter().step_by(step) {
+            seen += 1;
+            if self.lib.get(*id).map(|t| !t.album.is_empty()).unwrap_or(false) {
+                with += 1;
+            }
+        }
+        with * 4 >= seen
     }
 
     /// One song row. `list` is what plays (in order) when the row is played.
@@ -309,74 +439,92 @@ impl App {
             p.rect_filled(rect, R_MD - 2.0, bg);
         }
         let y = rect.center().y;
-        let mut x = rect.left() + S2;
-        let hovering = resp.hovered() || h > 0.5 || self.song_menu_open_for(ui, id);
+        let menu_open = self.song_menu_open_for(ui, id);
+        let hovering = resp.hovered() || h > 0.5 || menu_open;
+        // How far the hover controls have faded in (they cross-fade, never pop).
+        let hv = if menu_open { 1.0 } else { h };
 
-        // Number / play column
-        let num_c = pos2(x + 14.0, y);
+        let cols = song_cols(rect.left(), rect.right(), mode);
+        // Number / play column: the number fades out as the play button fades in.
+        let num_c = pos2(cols.num, y);
         let mut play_hit = false;
         let num_r = Rect::from_center_size(num_c, vec2(28.0, 28.0));
-        if hovering {
-            let pr = ui.interact(num_r, resp.id.with("play"), Sense::click());
+        if hv > 0.01 {
+            let pr = ui.interact(num_r, resp.id.with("play"), if hovering { Sense::click() } else { Sense::hover() });
             let (ph, _) = w::hover_press(ui, &pr);
+            let c = with_alpha(lerp_color(TEXT, ACCENT, ph), hv);
             if is_cur && self.ps.playing {
-                icons::pause(&p, num_c, 12.0, lerp_color(TEXT, ACCENT, ph));
+                icons::pause(&p, num_c, 12.0, c);
             } else {
-                icons::play(&p, num_c, 12.0, lerp_color(TEXT, ACCENT, ph));
+                icons::play(&p, num_c, 12.0, c);
             }
-            if pr.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+            if hovering && pr.on_hover_cursor(CursorIcon::PointingHand).clicked() {
                 play_hit = true;
             }
-        } else if is_cur && self.ps.playing {
-            icons::now_playing_bars(&p, num_c, 13.0, ACCENT);
-        } else {
-            let n = if mode.track_numbers && t.track_no > 0 { t.track_no as usize } else { i + 1 };
-            w::text(&p, num_c, Align2::CENTER_CENTER, &n.to_string(), body(), if is_cur { ACCENT } else { TEXT_2 }, 40.0);
         }
-        x += 36.0;
+        if hv < 0.99 {
+            let a = 1.0 - hv;
+            if is_cur && self.ps.playing {
+                icons::now_playing_bars(&p, num_c, 13.0, with_alpha(ACCENT, a));
+            } else if mode.numbers {
+                let n = if mode.track_numbers && t.track_no > 0 { t.track_no as usize } else { i + 1 };
+                let c = if is_cur { ACCENT } else { TEXT_2 };
+                w::text(&p, num_c, Align2::CENTER_CENTER, &n.to_string(), body(), with_alpha(c, a), 40.0);
+            }
+        }
 
         // Art
-        if mode.art {
-            let ar = Rect::from_min_size(pos2(x, y - 20.0), vec2(40.0, 40.0));
+        if let Some(ax) = cols.art {
+            let ar = Rect::from_min_size(pos2(ax, y - 20.0), vec2(40.0, 40.0));
             let tex = self.art.cover(t.art, ArtSize::S);
             w::art(&p, ar, tex, R_SM, Color32::WHITE);
-            x = ar.right() + S3;
-        } else {
-            x += S1;
         }
+        let x = cols.text;
 
-        let right = rect.right() - S2;
-        let dur_x = right - 4.0;
-        let heart_c = pos2(right - 74.0, y);
-        let more_c = pos2(right - 108.0, y);
-        let text_end = more_c.x - 20.0;
-        let album_on = mode.album_col && rect.width() > 760.0;
-        let album_x = rect.left() + (rect.width()) * 0.55;
-        let title_w = (if album_on { album_x - S4 } else { text_end }) - x;
+        let heart_c = pos2(cols.heart, y);
+        let more_c = pos2(cols.more, y);
+        let title_w = cols.title_w;
         let tc = if is_cur { ACCENT } else { TEXT };
-        w::text(&p, pos2(x, y - 9.0), Align2::LEFT_CENTER, &t.title, body(), tc, title_w);
-        let artist = if t.artist.is_empty() { "Unknown artist" } else { t.artist.as_str() };
-        w::text(&p, pos2(x, y + 10.0), Align2::LEFT_CENTER, artist, small(), TEXT_2, title_w);
-        if album_on {
-            w::text(&p, pos2(album_x, y), Align2::LEFT_CENTER, &t.album, small(), TEXT_2, text_end - album_x - S2);
+        // On an album or artist page the artist is already in the header; only name it on rows
+        // by someone else.
+        let show_artist = match mode.one_artist {
+            Some(k) => library::artist_key(t.primary_artist()) != k,
+            None => true,
+        };
+        if show_artist {
+            w::text(&p, pos2(x, y - 9.0), Align2::LEFT_CENTER, &t.title, body(), tc, title_w);
+            let artist = if t.artist.is_empty() { "Unknown artist" } else { t.artist.as_str() };
+            w::text(&p, pos2(x, y + 10.0), Align2::LEFT_CENTER, artist, small(), TEXT_2, title_w);
+        } else {
+            w::text(&p, pos2(x, y), Align2::LEFT_CENTER, &t.title, body(), tc, title_w);
         }
-        w::text(&p, pos2(dur_x, y), Align2::RIGHT_CENTER, &fmt_time(t.duration), small(), TEXT_2, 60.0);
+        if let Some((ax, aw)) = cols.album {
+            w::text(&p, pos2(ax, y), Align2::LEFT_CENTER, &t.album, small(), TEXT_2, aw);
+        }
+        if let Some((dx, dw)) = cols.added {
+            w::text(&p, pos2(dx, y), Align2::LEFT_CENTER, &when_added(t.added), small(), TEXT_2, dw);
+        }
+        w::text(&p, pos2(cols.dur_right, y), Align2::RIGHT_CENTER, &fmt_time(t.duration), small(), TEXT_2, 60.0);
 
-        // Love (always visible when loved, otherwise on hover) and more.
+        // Love (always visible when loved, otherwise on hover) and more, fading in with the hover.
         let loved = self.loved.contains(&id);
-        if loved || hovering {
+        let mut fade = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt("hover-controls"));
+        fade.multiply_opacity(if loved { 1.0 } else { hv });
+        if loved || hv > 0.01 {
             let lr = Rect::from_center_size(heart_c, Vec2::splat(30.0));
-            let lresp = ui.interact(lr, resp.id.with("love"), Sense::click());
-            if self.love_button(ui, lr, lresp, id).clicked() {
+            let lresp = fade.interact(lr, resp.id.with("love"), if loved || hovering { Sense::click() } else { Sense::hover() });
+            if self.love_button(&fade, lr, lresp, id).clicked() {
                 self.actions.push(Action::ToggleLove(id));
             }
         }
+        let mut fade2 = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt("hover-more"));
+        fade2.multiply_opacity(hv);
         let mut menu_open_at: Option<egui::Pos2> = None;
-        if hovering {
+        if hv > 0.01 {
             let mr = Rect::from_center_size(more_c, Vec2::splat(30.0));
-            let mresp = ui.interact(mr, resp.id.with("more"), Sense::click());
-            let mresp = w::icon_button_at(ui, mr, mresp, icons::ELLIPSIS, false, "More");
-            if mresp.clicked() {
+            let mresp = fade2.interact(mr, resp.id.with("more"), if hovering { Sense::click() } else { Sense::hover() });
+            let mresp = w::icon_button_at(&fade2, mr, mresp, icons::ELLIPSIS, false, "More");
+            if hovering && mresp.clicked() {
                 menu_open_at = Some(mr.left_bottom());
             }
         }
@@ -451,9 +599,9 @@ impl App {
             }
         }
         // A grip on hover in lists you can reorder, so it's clear rows can be dragged.
-        if (mode.reorder || mode.playlist.is_some()) && hovering {
+        if (mode.reorder || mode.playlist.is_some()) && hv > 0.01 {
             // Inside the row's left padding, clear of the play button.
-            icons::glyph(&p, pos2(rect.left() + 7.0, rect.center().y), icons::GRIP, 12.0, TEXT_3);
+            icons::glyph(&p, pos2(rect.left() + 7.0, rect.center().y), icons::GRIP, 12.0, with_alpha(TEXT_3, hv));
         }
 
         let pl = mode.playlist.zip(pl_index);
@@ -515,7 +663,7 @@ impl App {
             self.library_empty(ui);
             return (0.0, String::new());
         }
-        let mode = RowMode { art: true, album_col: true, track_numbers: false, playlist: None, reorder: true };
+        let mode = RowMode { reorder: true, added: true, album_col: self.list_has_albums(&ids), ..RowMode::list() };
         let total = self.lib.total_duration(&ids);
         let n = ids.len();
         let scanning = self.lib.scanning;
@@ -523,7 +671,7 @@ impl App {
         let off = self.list_page(
             ui,
             "songs",
-            150.0,
+            188.0,
             n,
             ROW_H,
             |app, ui, r| {
@@ -535,14 +683,11 @@ impl App {
                     theme::songs_and_length(n, total)
                 };
                 w::text(&p, pos2(r.left() + PAD_X, r.top() + 54.0), Align2::LEFT_CENTER, &meta, small(), TEXT_2, r.width() - 2.0 * PAD_X);
-                let br = Rect::from_min_size(pos2(r.left() + PAD_X, r.top() + 76.0), vec2(r.width() - 2.0 * PAD_X, 36.0));
+                // The same play and shuffle buttons as album and playlist pages.
+                let br = Rect::from_min_size(pos2(r.left() + PAD_X, r.top() + 80.0), vec2(r.width() - 2.0 * PAD_X, 56.0));
                 let mut bu = ui.new_child(egui::UiBuilder::new().max_rect(br).layout(egui::Layout::left_to_right(egui::Align::Center)));
-                if w::pill(&mut bu, "Play", Some("play"), PillKind::Primary).clicked() {
-                    app.actions.push(Action::PlayIds { ids: list.to_vec(), start: 0, shuffle: Some(false) });
-                }
-                if w::pill(&mut bu, "Shuffle", Some(icons::SHUFFLE), PillKind::Secondary).clicked() {
-                    app.actions.push(Action::PlayIds { ids: list.to_vec(), start: 0, shuffle: Some(true) });
-                }
+                bu.spacing_mut().item_spacing.x = S4;
+                app.play_buttons(&mut bu, &list);
                 bu.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     app.sort_menu(ui);
                 });
@@ -551,6 +696,7 @@ impl App {
             },
             |app, ui, r, i| app.track_row(ui, r, &ids, i, mode, None),
         );
+        self.sticky_columns(ui, off, 188.0, mode);
         (off, "Songs".into())
     }
 
@@ -817,21 +963,8 @@ impl App {
         let br = Rect::from_min_size(pos2(r.left() + PAD_X, ay - 28.0), vec2(r.width() - 2.0 * PAD_X, 56.0));
         let mut bu = ui.new_child(egui::UiBuilder::new().max_rect(br).layout(egui::Layout::left_to_right(egui::Align::Center)));
         bu.spacing_mut().item_spacing.x = S4;
-        let playing_this = self.ps.playing && self.current_id().map(|c| ids.contains(&c)).unwrap_or(false) && {
-            // Only show pause if the queue came from this list.
-            self.ps.queue.len() == ids.len()
-        };
         if !ids.is_empty() {
-            if w::play_circle(&mut bu, 56.0, playing_this, false).clicked() {
-                if playing_this {
-                    self.actions.push(Action::Toggle);
-                } else {
-                    self.actions.push(Action::PlayIds { ids: ids.to_vec(), start: 0, shuffle: Some(false) });
-                }
-            }
-            if w::icon_button(&mut bu, 40.0, icons::SHUFFLE, false, "Shuffle play").clicked() {
-                self.actions.push(Action::PlayIds { ids: ids.to_vec(), start: 0, shuffle: Some(true) });
-            }
+            self.play_buttons(&mut bu, ids);
         }
         if let Some(pid) = playlist {
             let more = w::icon_button(&mut bu, 40.0, icons::ELLIPSIS, false, "More");
@@ -850,6 +983,24 @@ impl App {
                     ui.close();
                 }
             });
+        }
+    }
+
+    /// The big play button and shuffle, used at the top of every list of songs.
+    fn play_buttons(&mut self, ui: &mut Ui, ids: &Arc<Vec<u64>>) {
+        // Pause shows only while the queue came from this list.
+        let playing_this = self.ps.playing
+            && self.ps.queue.len() == ids.len()
+            && self.current_id().map(|c| ids.contains(&c)).unwrap_or(false);
+        if w::play_circle(ui, 56.0, playing_this, false).on_hover_text(if playing_this { "Pause" } else { "Play" }).clicked() {
+            if playing_this {
+                self.actions.push(Action::Toggle);
+            } else {
+                self.actions.push(Action::PlayIds { ids: ids.to_vec(), start: 0, shuffle: Some(false) });
+            }
+        }
+        if w::icon_button(ui, 40.0, icons::SHUFFLE, false, "Shuffle play").clicked() {
+            self.actions.push(Action::PlayIds { ids: ids.to_vec(), start: 0, shuffle: Some(true) });
         }
     }
 
@@ -915,7 +1066,7 @@ impl App {
         meta.push_str(&format!(" · {}", theme::songs_and_length(ids.len(), self.lib.total_duration(&ids))));
         let art = a.art;
         let artist_key = library::artist_key(&a.artist);
-        let mode = RowMode { art: false, album_col: false, track_numbers: true, playlist: None, reorder: false };
+        let mode = RowMode { art: false, album_col: false, track_numbers: true, one_artist: Some(artist_key), ..RowMode::list() };
         let n = ids.len();
         let ids2 = ids.clone();
         let t2 = title.clone();
@@ -934,6 +1085,7 @@ impl App {
             },
             |app, ui, r, i| app.track_row(ui, r, &ids, i, mode, None),
         );
+        self.sticky_columns(ui, off, 352.0, mode);
         (off, title)
     }
 
@@ -948,7 +1100,7 @@ impl App {
             meta = format!("{} · {}", theme::plural(a.albums.len(), "album", "albums"), meta);
         }
         let art = a.art;
-        let mode = RowMode { art: true, album_col: true, track_numbers: false, playlist: None, reorder: false };
+        let mode = RowMode { one_artist: Some(key), album_col: self.list_has_albums(&ids), ..RowMode::list() };
         let n = ids.len();
         let ids2 = ids.clone();
         let n2 = name.clone();
@@ -965,6 +1117,7 @@ impl App {
             },
             |app, ui, r, i| app.track_row(ui, r, &ids, i, mode, None),
         );
+        self.sticky_columns(ui, off, 352.0, mode);
         (off, name)
     }
 
@@ -990,7 +1143,7 @@ impl App {
         let pl_index: Vec<usize> = entries.iter().map(|e| e.0).collect();
         let meta = theme::songs_and_length(ids.len(), self.lib.total_duration(&ids));
         let art = None;
-        let mode = RowMode { art: true, album_col: true, track_numbers: false, playlist: pid, reorder: false };
+        let mode = RowMode { playlist: pid, album_col: self.list_has_albums(&ids), ..RowMode::list() };
         let n = ids.len();
         let ids2 = ids.clone();
         let t2 = title.clone();
@@ -1028,6 +1181,9 @@ impl App {
                 app.track_row(ui, r, &ids, i, mode, if pid.is_some() { pi } else { None })
             },
         );
+        if !empty {
+            self.sticky_columns(ui, off, header_h, mode);
+        }
         (off, title)
     }
 
@@ -1164,7 +1320,7 @@ impl App {
             let hits = Arc::new(self.lib.search(q, 8));
             if !hits.is_empty() {
                 self.section_title(ui, "In your library");
-                let mode = RowMode { art: true, album_col: true, track_numbers: false, playlist: None, reorder: false };
+                let mode = RowMode { album_col: false, numbers: false, ..RowMode::list() };
                 let row_w = ui.available_width();
                 for i in 0..hits.len() {
                     let (r, _) = ui.allocate_exact_size(vec2(row_w, ROW_H), Sense::hover());
@@ -1427,32 +1583,33 @@ impl App {
                 let ui2 = &mut inner;
                 let (r, _) = ui2.allocate_exact_size(vec2(ui2.available_width(), 44.0), Sense::hover());
                 w::text(ui2.painter(), pos2(r.left(), r.center().y), Align2::LEFT_CENTER, "Downloads", h1(), TEXT, 400.0);
-                let meta = if active > 0 {
-                    format!("{} downloading", group_digits(active))
-                } else if jobs.is_empty() {
-                    "Songs you download from YouTube show up here".into()
-                } else {
-                    "All done".into()
-                };
-                let (r, _) = ui2.allocate_exact_size(vec2(ui2.available_width(), 18.0), Sense::hover());
-                w::text(ui2.painter(), pos2(r.left(), r.center().y), Align2::LEFT_CENTER, &meta, small(), TEXT_2, r.width());
-                ui2.add_space(S4);
-                ui2.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = S2;
-                    if w::pill(ui, "Search YouTube", Some(icons::SEARCH), PillKind::Primary).clicked() {
-                        self.actions.push(Action::Go(Route::Search));
-                    }
-                    if w::pill(ui, "Open music folder", Some(icons::FOLDER_OPEN), PillKind::Secondary).clicked() {
-                        self.actions.push(Action::OpenFolder);
-                    }
-                    if finished > 0 && w::pill(ui, "Clear finished", None, PillKind::Ghost).clicked() {
-                        self.actions.push(Action::YtClearFinished);
-                    }
-                });
+                if !jobs.is_empty() {
+                    let meta = if active > 0 { format!("{} downloading", group_digits(active)) } else { "All done".into() };
+                    let (r, _) = ui2.allocate_exact_size(vec2(ui2.available_width(), 18.0), Sense::hover());
+                    w::text(ui2.painter(), pos2(r.left(), r.center().y), Align2::LEFT_CENTER, &meta, small(), TEXT_2, r.width());
+                    ui2.add_space(S4);
+                    ui2.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = S2;
+                        if w::pill(ui, "Open music folder", Some(icons::FOLDER_OPEN), PillKind::Secondary).clicked() {
+                            self.actions.push(Action::OpenFolder);
+                        }
+                        if finished > 0 && w::pill(ui, "Clear finished", None, PillKind::Ghost).clicked() {
+                            self.actions.push(Action::YtClearFinished);
+                        }
+                    });
+                }
                 ui2.add_space(S5);
                 self.setup_banner(ui2);
-                if jobs.is_empty() {
-                    w::empty_state(ui2, icons::DOWNLOAD, "Nothing downloading", "Search for a song or paste a YouTube link, then press the download button next to it.", None);
+                if jobs.is_empty()
+                    && w::empty_state(
+                        ui2,
+                        icons::DOWNLOAD,
+                        "Nothing downloaded yet",
+                        "Search for a song or paste a YouTube link, then press the download button next to it.",
+                        Some(("Search YouTube", Some(icons::SEARCH))),
+                    )
+                {
+                    self.actions.push(Action::Go(Route::Search));
                 }
                 for j in jobs.iter().rev() {
                     self.job_row(ui2, j);
@@ -1617,7 +1774,7 @@ impl App {
                     (_, Some(v)) => format!("yt-dlp {v} · saves M4A with cover art"),
                     _ => "Sets itself up the first time you search or download.".into(),
                 };
-                self.settings_card(ui2, "Downloads", &status, |app, ui| {
+                self.settings_card(ui2, "YouTube downloads", &status, |app, ui| {
                     if version.is_some() {
                         if w::pill(ui, "Update yt-dlp", Some(icons::REFRESH), PillKind::Secondary).clicked() {
                             app.actions.push(Action::YtUpdate);
@@ -1736,9 +1893,9 @@ impl App {
         let wide = rect.width() > 860.0;
         let avail_h = rect.height() - TOPBAR_H - S8;
         let left_w = if wide { rect.width() * 0.56 } else { rect.width() };
-        let art_s = (avail_h - 140.0).min(left_w - 2.0 * PAD_X - S8).min(460.0).max(160.0);
+        let art_s = (avail_h - 110.0).min(left_w - 2.0 * PAD_X - S8).min(460.0).max(160.0);
         let cx = rect.left() + left_w / 2.0;
-        let top = rect.top() + TOPBAR_H + ((avail_h - art_s - 120.0) / 2.0).max(0.0);
+        let top = rect.top() + TOPBAR_H + ((avail_h - art_s - 90.0) / 2.0).max(0.0);
         let ar = Rect::from_min_size(pos2(cx - art_s / 2.0, top), Vec2::splat(art_s));
         let p = ui.painter().clone();
         // Art "breathes" slightly smaller while paused (one short transition, not a loop).
@@ -1761,16 +1918,6 @@ impl App {
             if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
                 self.actions.push(Action::Go(Route::Artist(key)));
             }
-        }
-        let lr = Rect::from_center_size(pos2(cx, ar.bottom() + 104.0), Vec2::splat(36.0));
-        let lresp = ui.interact(lr, Id::new("np-love"), Sense::click());
-        match &t.preview {
-            None => {
-                if self.love_button(ui, lr, lresp, t.id).clicked() {
-                    self.actions.push(Action::ToggleLove(t.id));
-                }
-            }
-            Some(item) => self.save_preview_button(ui, lr, lresp, item),
         }
 
         if wide {

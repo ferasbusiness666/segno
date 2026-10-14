@@ -184,6 +184,8 @@ pub struct App {
     back: Vec<Route>,
     fwd: Vec<Route>,
     pub route_t: f64,
+    /// The song list's column titles are pinned under the top bar this frame.
+    pub sticky_cols: bool,
     pub search: String,
     pub search_id: Id,
     pub focus_search: bool,
@@ -282,6 +284,7 @@ impl App {
             back: Vec::new(),
             fwd: Vec::new(),
             route_t: 0.0,
+            sticky_cols: false,
             search: String::new(),
             search_id: Id::new("search-box"),
             focus_search: false,
@@ -1207,7 +1210,7 @@ impl App {
             ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
             ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(300.0, 300.0)));
             ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
-            let pos = self.settings.mini_pos.map(|p| pos2(p[0], p[1])).or_else(|| {
+            let pos = platform::mini_position(self.hwnd, self.settings.mini_pos, 300.0, ctx.pixels_per_point()).or_else(|| {
                 ctx.input(|i| i.viewport().monitor_size)
                     .map(|m| pos2(m.x - 300.0 - 24.0, m.y - 300.0 - 72.0))
             });
@@ -1457,7 +1460,7 @@ impl App {
         // Search
         let width = inner.width();
         let mut q = std::mem::take(&mut self.search);
-        let out = w::search_box(ui, &mut q, "Search or paste a link", self.search_id, width);
+        let out = w::search_box(ui, &mut q, "Search", self.search_id, width);
         if self.focus_search {
             self.focus_search = false;
             out.response.request_focus();

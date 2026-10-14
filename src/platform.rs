@@ -198,6 +198,41 @@ pub fn hwnd_of(_frame: &eframe::Frame) -> Option<isize> {
     None
 }
 
+/// Where to put the mini player (in points): the saved spot if it's fully on a screen, otherwise
+/// the bottom-right corner of the screen the main window is on. Screens change (a laptop
+/// unplugged from a monitor), and a player you can't see is no use.
+#[allow(unused_variables)]
+pub fn mini_position(hwnd: Option<isize>, saved: Option<[f32; 2]>, size: f32, ppp: f32) -> Option<egui::Pos2> {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::POINT;
+        use windows_sys::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL,
+        };
+        if let Some([x, y]) = saved {
+            let on_screen = |px: f32, py: f32| {
+                !MonitorFromPoint(POINT { x: (px * ppp) as i32, y: (py * ppp) as i32 }, MONITOR_DEFAULTTONULL).is_null()
+            };
+            if on_screen(x + 1.0, y + 1.0) && on_screen(x + size - 1.0, y + size - 1.0) {
+                return Some(egui::pos2(x, y));
+            }
+        }
+        let hwnd = hwnd? as windows_sys::Win32::Foundation::HWND;
+        let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi) != 0 {
+            let wa = mi.rcWork;
+            return Some(egui::pos2(wa.right as f32 / ppp - size - 24.0, wa.bottom as f32 / ppp - size - 24.0));
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        saved.map(|p| egui::pos2(p[0], p[1]))
+    }
+}
+
 /// Dark title bar that matches the app background (Windows 11 colors it exactly; Windows 10
 /// gets the dark variant).
 pub fn style_title_bar(_hwnd: isize, _bg: [u8; 3], _text: [u8; 3]) {
