@@ -1,0 +1,61 @@
+# Builds Segno.exe on Windows for every push. Pushing a version tag (like v1.0.1) also
+# publishes a GitHub release with the exe attached, which is what the in-app updater finds.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check the tag matches the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$tag" != "$version" ]; then
+            echo "::error::The tag is v$tag but Cargo.toml says $version. Change one so they match."
+            exit 1
+          fi
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Name the exe
+        shell: bash
+        run: |
+          mkdir dist
+          cp target/release/segno.exe dist/Segno.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Segno
+          path: dist/Segno.exe
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Segno.exe
+          generate_release_notes: true
+          body: |
+            Download **Segno.exe** below and run it. No installer needed.
+
+            Windows may say "Windows protected your PC" because Segno is new and unsigned. Click **More info**, then **Run anyway**.
+
+            Already using Segno? It updates itself.

@@ -1,0 +1,42 @@
+[package]
+name = "segno"
+version = "1.0.0"
+edition = "2021"
+description = "Segno - a light music player for Windows"
+license = "MIT"
+repository = "https://github.com/ferasbusiness666/segno"
+homepage = "https://segnomusic.app"
+
+[dependencies]
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "x11"] }
+egui = "0.36"
+rodio = { version = "0.23", default-features = false, features = ["playback", "symphonia-aac", "symphonia-isomp4", "symphonia-mp3", "symphonia-flac", "symphonia-vorbis", "symphonia-wav", "symphonia-alac", "symphonia-aiff"] }
+lofty = "0.25"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+rfd = "0.17"
+notify = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+unicode-bidi = "0.3"
+raw-window-handle = "0.6"
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+sha2 = "0.10"
+
+[target.'cfg(not(windows))'.dependencies]
+ureq = "3"
+
+[target.'cfg(windows)'.dependencies]
+ureq = { version = "3", default-features = false, features = ["native-tls", "gzip"] }
+souvlaki = "0.8"
+tray-icon = { version = "0.26", default-features = false }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Security", "Win32_Storage_FileSystem", "Win32_UI_Shell"] }
+
+[build-dependencies]
+embed-resource = "3"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

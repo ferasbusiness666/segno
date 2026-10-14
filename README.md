@@ -1,0 +1,106 @@
+<p align="center"><img src="assets/icon_256.png" width="96" alt=""></p>
+
+<h1 align="center">Segno</h1>
+
+<p align="center">A light, modern music player for Windows. Plays your own music, finds new songs by itself, and downloads from YouTube.</p>
+
+<p align="center"><a href="https://github.com/ferasbusiness666/segno/releases/latest"><b>Download Segno for Windows</b></a></p>
+
+![Segno](docs/screenshot.png)
+
+## Download
+
+Get **Segno.exe** from the [latest release](https://github.com/ferasbusiness666/segno/releases/latest) and run it. No installer needed.
+
+Windows may say "Windows protected your PC" because Segno is new and unsigned. Click **More info**, then **Run anyway**.
+
+Segno updates itself, so you only download it once.
+
+## What it does
+
+- Plays everything in your music folder (MP3, M4A/AAC, ALAC, FLAC, OGG, WAV, AIFF), including subfolders.
+- Finds new files by itself: Windows tells it when the folder changes, no polling.
+- Songs, Albums, Artists, Loved songs and your own playlists. Drag songs onto a playlist to add them, drag them inside it to reorder.
+- Drag songs in the Songs list to put them in your own order.
+- Shuffle, repeat (off / all / one), a queue you can reorder, "Play next" and "Add to queue".
+- Drag songs onto the queue (the panel or the queue button) to add them.
+- When the queue ends, it keeps playing from your library (you can turn this off in Settings).
+- Drag the edges of the sidebar and the queue to resize them. Drag the sidebar small, or press Ctrl + B, to fold it into icons.
+- Big "Now Playing" view, mini player (always on top), media keys and the Windows media overlay.
+- Keeps playing from the tray when you close the window while music is playing.
+- Remembers your song, position, queue, volume and window size.
+
+## YouTube
+
+Type in the search box: matches from your library show up right away, and Enter searches YouTube.
+Paste a video or playlist link and it shows up too. Click a result to listen to it, or press the
+download button to keep it.
+
+- Songs are saved as M4A into your music folder as "Artist - Title.m4a", with title, artist and cover art written in.
+- A YouTube playlist link also becomes a playlist in Segno.
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) is downloaded on first use and keeps itself updated.
+  YouTube needs a JavaScript runtime: Segno uses Node, Deno or Bun if you have one, otherwise it fetches Deno once.
+- All of it runs hidden, with no console windows.
+
+Only download music you have the right to.
+
+## Light on your battery
+
+- Nothing is drawn while you're not using the window.
+- While music plays it redraws once per second (for the clock and seek bar). Minimized or hidden, not at all.
+- Audio runs on its own thread, and the sound device is let go after 20 seconds of pause.
+- About 150 ms of audio is queued ahead, so a busy moment (like switching desktops on a slow laptop) doesn't make the music skip.
+- Covers are shrunk once and cached on disk; only the covers on screen are kept in memory.
+
+## Keyboard
+
+| Keys | Does |
+| --- | --- |
+| Space | Play / pause |
+| Ctrl + → / ← | Next / previous |
+| Ctrl + ↑ / ↓ | Volume |
+| Ctrl + F | Search |
+| Ctrl + M | Mini player |
+| Ctrl + B | Fold or unfold the sidebar |
+| Alt + ← | Back |
+
+## Where things are stored
+
+- Settings and playlists: `%APPDATA%\Segno`
+- Library index, cover cache, yt-dlp: `%LOCALAPPDATA%\Segno`
+- If something crashes, details go to `%LOCALAPPDATA%\Segno\crash.log`
+
+Segno doesn't collect or send anything about you. The only things it connects to are YouTube (when you search or download), GitHub (to check for updates) and the yt-dlp and Deno downloads.
+
+## Build it yourself
+
+On Windows with [Rust](https://rustup.rs) installed:
+
+```
+cargo build --release
+```
+
+The exe ends up in `target\release\segno.exe`.
+
+## Publishing a new version
+
+GitHub builds the exe for you:
+
+1. Raise `version` in `Cargo.toml` (for example `1.0.0` → `1.0.1`) and commit.
+2. Tag that commit with the same version and push the tag:
+   ```
+   git tag v1.0.1
+   git push origin v1.0.1
+   ```
+3. GitHub Actions builds `Segno.exe` and publishes the release. Everyone's Segno picks it up within a day.
+
+## Credits
+
+- UI: [egui](https://github.com/emilk/egui), audio: [rodio](https://github.com/RustAudio/rodio) and [Symphonia](https://github.com/pdeljanov/Symphonia), tags: [lofty](https://github.com/Serial-ATA/lofty-rs)
+- Icons: [Lucide](https://lucide.dev) (ISC license, see `assets/LUCIDE-LICENSE.txt`)
+- Font: [Inter](https://rsms.me/inter/) (SIL Open Font License, see `assets/INTER-LICENSE.txt`)
+- Downloads: [yt-dlp](https://github.com/yt-dlp/yt-dlp) (fetched when needed, not bundled)
+
+## License
+
+[MIT](LICENSE)

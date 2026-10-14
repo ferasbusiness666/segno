@@ -1,0 +1,28 @@
+// Template: build.rs fills in the {placeholders} and compiles a copy of this file.
+#include <winver.h>
+1 ICON "{ICON}"
+1 24 "{MANIFEST}"
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION {VERSION_COMMAS}
+PRODUCTVERSION {VERSION_COMMAS}
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Segno"
+      VALUE "FileDescription", "Segno"
+      VALUE "FileVersion", "{VERSION}"
+      VALUE "InternalName", "segno"
+      VALUE "OriginalFilename", "Segno.exe"
+      VALUE "ProductName", "Segno"
+      VALUE "ProductVersion", "{VERSION}"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
