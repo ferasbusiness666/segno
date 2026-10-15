@@ -50,7 +50,12 @@ pub enum Action {
     AddToQueue(Vec<u64>),
     InsertInQueue { at: usize, ids: Vec<u64> },
     PlayFromAutoplay(u64),
+    /// Play a song from its site without downloading it.
     Preview(YtItem),
+    /// Download a playlist's songs that still play from their site.
+    DownloadPlaylist(u64),
+    /// Download one song that plays from its site (by its track id).
+    DownloadStream(u64),
     SetAutoplay(bool),
     RemoveFromQueue(u64),
     MoveQueue { from: usize, to: usize },
@@ -154,6 +159,8 @@ pub struct Transient {
     pub item: YtItem,
     pub art: Option<u64>,
     pub color: Option<[u8; 3]>,
+    /// Its file in the preview cache, once fetched.
+    pub path: Option<PathBuf>,
 }
 
 pub struct App {
@@ -172,8 +179,10 @@ pub struct App {
     pub settings: Settings,
     pub playlists: Vec<Playlist>,
     pub loved: HashSet<u64>,
-    /// Songs playing from YouTube that aren't downloaded, keyed by the id of their cache file.
+    /// Songs that play from their site without being downloaded, by `store::stream_id`.
     pub transient: std::collections::HashMap<u64, Transient>,
+    /// The same songs, shared with the audio thread so it can fetch them while the window sleeps.
+    pub stream_reg: Arc<std::sync::Mutex<std::collections::HashMap<u64, YtItem>>>,
     /// Which song key each downloaded file is (until the library has scanned it).
     path_keys: std::collections::HashMap<PathBuf, String>,
     /// Playlist covers fetched in the background: (playlist, art key, color).
@@ -300,6 +309,7 @@ impl App {
             playlists,
             loved,
             transient: std::collections::HashMap::new(),
+            stream_reg: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             path_keys: std::collections::HashMap::new(),
             cover_tx,
             cover_rx,
@@ -359,15 +369,50 @@ impl App {
             ctx: ctx.clone(),
         };
         // Restore the queue and position from last time (paused, ready to continue).
+        // The audio thread asks for streamed songs itself and hears back directly.
+        {
+            let reg = app.stream_reg.clone();
+            let fetcher = app.yt.fetcher();
+            let ph = app.player.clone();
+            *app.player.fetcher.lk() = Some(Arc::new(move |id: u64| {
+                let item = reg.lk().get(&id).cloned();
+                let Some(item) = item else {
+                    ph.send(Cmd::FetchFailed { id });
+                    return;
+                };
+                let ph2 = ph.clone();
+                fetcher.fetch(item, move |res| {
+                    ph2.send(match res {
+                        Ok(path) => Cmd::Fetched { id, path },
+                        Err(_) => Cmd::FetchFailed { id },
+                    })
+                });
+            }));
+        }
+        app.register_playlist_streams();
         let r = app.settings.resume.clone();
+        for it in r.streams.iter().cloned() {
+            app.register_stream(it);
+        }
         if !r.queue.is_empty() {
-            let mk = |v: &Vec<PathBuf>| v.iter().map(|p| QItem::new(path_id(p), p.clone())).collect::<Vec<_>>();
+            let mk = |v: &Vec<PathBuf>| {
+                v.iter()
+                    .map(|p| match store::stream_key(p) {
+                        Some(k) => app.stream_qitem(store::stream_id(k)).unwrap_or_else(|| QItem::stream(store::stream_id(k), p.clone())),
+                        None => QItem::new(path_id(p), p.clone()),
+                    })
+                    .collect::<Vec<_>>()
+            };
             let queue = mk(&r.queue);
             // Keep uids shared between queue and original for the same entries.
             let mut original = Vec::new();
             let mut used = vec![false; queue.len()];
             for p in &r.original {
-                if let Some(i) = queue.iter().enumerate().position(|(i, q)| !used[i] && &q.path == p) {
+                let same = |q: &QItem| match store::stream_key(p) {
+                    Some(k) => q.id == store::stream_id(k),
+                    None => &q.path == p,
+                };
+                if let Some(i) = queue.iter().enumerate().position(|(i, q)| !used[i] && same(q)) {
                     used[i] = true;
                     original.push(queue[i].clone());
                 }
@@ -400,7 +445,10 @@ impl App {
 
     pub fn qitems(&self, ids: &[u64]) -> Vec<QItem> {
         ids.iter()
-            .filter_map(|id| self.lib.get(*id).map(|t| QItem::new(t.id, t.path.clone())))
+            .filter_map(|id| match self.lib.get(*id) {
+                Some(t) => Some(QItem::new(t.id, t.path.clone())),
+                None => self.stream_qitem(*id),
+            })
             .collect()
     }
 
@@ -542,17 +590,26 @@ impl App {
         self.playlists.iter().find(|p| p.id == pid)
     }
 
-    /// Track ids of a playlist, skipping files that are gone.
+    /// Track ids of a playlist (files and songs that play from their site), skipping files
+    /// that are gone.
     pub fn playlist_ids(&self, pid: u64) -> Vec<(usize, u64)> {
         self.playlist(pid)
-            .map(|p| {
-                p.tracks
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, path)| self.lib.by_path(path).map(|t| (i, t.id)))
-                    .collect()
-            })
+            .map(|p| p.tracks.iter().enumerate().filter_map(|(i, path)| self.entry_id(path).map(|id| (i, id))).collect())
             .unwrap_or_default()
+    }
+
+    /// The track id behind a playlist entry.
+    pub fn entry_id(&self, path: &std::path::Path) -> Option<u64> {
+        if let Some(t) = self.lib.by_path(path) {
+            return Some(t.id);
+        }
+        let key = match store::stream_key(path) {
+            Some(k) => k.to_string(),
+            // Just downloaded and not scanned yet: keep showing it as the song it was.
+            None => self.path_keys.get(path)?.clone(),
+        };
+        let id = store::stream_id(&key);
+        self.transient.contains_key(&id).then_some(id)
     }
 
     pub fn loved_ids(&self) -> Vec<u64> {
@@ -637,11 +694,27 @@ impl App {
 
     fn save_resume(&mut self) {
         let s = self.player.snapshot();
+        // Streamed songs are saved by key (their cached file may be cleaned up before next time).
+        let mut streams: Vec<YtItem> = Vec::new();
+        let mut entry = |q: &QItem| -> PathBuf {
+            match self.transient.get(&q.id).filter(|_| q.stream) {
+                Some(tr) => {
+                    if !streams.iter().any(|i| i.id == tr.item.id) {
+                        streams.push(tr.item.clone());
+                    }
+                    store::stream_entry(&tr.item.id)
+                }
+                None => q.path.clone(),
+            }
+        };
+        let queue = s.queue.iter().map(&mut entry).collect();
+        let original = s.original.iter().map(&mut entry).collect();
         self.settings.resume = store::Resume {
-            queue: s.queue.iter().map(|q| q.path.clone()).collect(),
-            original: s.original.iter().map(|q| q.path.clone()).collect(),
+            queue,
+            original,
             index: s.index,
             position: self.player.position(),
+            streams,
         };
         self.settings.volume = s.volume;
         self.settings.muted = s.muted;
@@ -694,11 +767,13 @@ impl App {
             self.lib.set_tracks(ev.tracks);
             self.lib.scanning = ev.scanning;
             self.lib.loaded_once = true;
+            self.resolve_streams();
         }
         while let Ok(ev) = self.yt.events.try_recv() {
             match ev {
                 ytdlp::YtEvent::Downloaded { path, playlist, key } => {
                     self.path_keys.insert(path.clone(), key.clone());
+                    self.stream_downloaded(&key, &path);
                     if let Some(pid) = playlist {
                         let lib = &self.lib;
                         let keys = &self.path_keys;
@@ -730,25 +805,8 @@ impl App {
                         self.toast(format!("Downloaded “{name}”"));
                     }
                 }
-                ytdlp::YtEvent::PreviewReady { item, path, art } => {
-                    let id = path_id(&path);
-                    self.transient.insert(
-                        id,
-                        Transient {
-                            item,
-                            art: art.map(|a| a.0),
-                            color: art.map(|a| a.1),
-                        },
-                    );
-                    self.player.send(Cmd::PlayList {
-                        items: vec![QItem::new(id, path)],
-                        start: 0,
-                        shuffle: None,
-                    });
-                }
-                ytdlp::YtEvent::PreviewFailed { msg } => {
-                    self.toast(format!("Couldn't play it: {msg}"));
-                }
+                ytdlp::YtEvent::Fetched { item, path, art } => self.on_fetched(item, path, art),
+                ytdlp::YtEvent::FetchFailed { item, msg } => self.on_fetch_failed(item, msg),
             }
         }
         self.sync_autoplay();
@@ -927,8 +985,10 @@ impl App {
             }
             Action::Preview(item) => {
                 self.yt_requested = true;
-                self.yt.preview(item);
+                self.play_stream(item);
             }
+            Action::DownloadPlaylist(pid) => self.download_playlist(pid),
+            Action::DownloadStream(id) => self.download_stream(id),
             Action::SetAutoplay(v) => {
                 self.settings.autoplay = v;
                 self.player.send(Cmd::SetAutoplay(v));
@@ -1023,12 +1083,22 @@ impl App {
                     name = format!("Playlist {k}");
                 }
                 let id = store::hash_bytes(format!("{}{}", now_secs(), name).as_bytes());
-                let tracks = with.iter().filter_map(|i| self.lib.get(*i).map(|t| t.path.clone())).collect();
+                let mut tracks = Vec::new();
+                let mut streams = std::collections::HashMap::new();
+                for i in &with {
+                    if let Some(t) = self.lib.get(*i) {
+                        tracks.push(t.path.clone());
+                    } else if let Some(tr) = self.transient.get(i) {
+                        tracks.push(store::stream_entry(&tr.item.id));
+                        streams.insert(tr.item.id.clone(), tr.item.clone());
+                    }
+                }
                 self.playlists.push(Playlist {
                     id,
                     name: name.clone(),
                     tracks,
                     created: now_secs(),
+                    streams,
                     ..Default::default()
                 });
                 store::save_playlists(&self.playlists);
@@ -1040,9 +1110,22 @@ impl App {
                 }
             }
             Action::AddToPlaylist { pid, ids } => {
-                let paths: Vec<PathBuf> = ids.iter().filter_map(|i| self.lib.get(*i).map(|t| t.path.clone())).collect();
+                // Files by path; songs that play from their site as stream entries.
+                let mut paths: Vec<PathBuf> = Vec::new();
+                let mut streams: Vec<YtItem> = Vec::new();
+                for i in &ids {
+                    if let Some(t) = self.lib.get(*i) {
+                        paths.push(t.path.clone());
+                    } else if let Some(tr) = self.transient.get(i) {
+                        paths.push(store::stream_entry(&tr.item.id));
+                        streams.push(tr.item.clone());
+                    }
+                }
                 if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
                     let mut added = 0;
+                    for it in streams {
+                        p.streams.insert(it.id.clone(), it);
+                    }
                     for path in paths {
                         if !p.tracks.contains(&path) {
                             p.tracks.push(path);
@@ -1206,7 +1289,8 @@ impl App {
             Action::YtRetry(uid) => self.yt.retry(uid),
             Action::RetryPlaylist(pid) => self.yt.retry_playlist(pid),
             Action::SavePlaylist { info, items } => {
-                self.yt_requested = true;
+                // Saved, not downloaded: songs already in the library go in as files, the rest
+                // play from the site until you download them.
                 let keys: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
                 // Saving the same link again updates that playlist instead of making a copy.
                 let existing = self
@@ -1215,32 +1299,45 @@ impl App {
                     .find(|p| p.source.as_ref().map(|s| s.url == info.url).unwrap_or(false))
                     .map(|p| p.id);
                 let pid = existing.unwrap_or_else(|| store::hash_bytes(format!("{}{}", now_secs(), info.url).as_bytes()));
-                // Songs already in the library go straight in, in the playlist's order.
-                let have: Vec<PathBuf> = items
-                    .iter()
-                    .filter_map(|i| self.lib.by_key.get(&i.id).and_then(|t| self.lib.get(*t)).map(|t| t.path.clone()))
-                    .collect();
+                let mut entries: Vec<PathBuf> = Vec::new();
+                let mut streams = std::collections::HashMap::new();
+                for it in &items {
+                    match self.lib.by_key.get(&it.id).and_then(|t| self.lib.get(*t)) {
+                        Some(t) => entries.push(t.path.clone()),
+                        None => {
+                            entries.push(store::stream_entry(&it.id));
+                            streams.insert(it.id.clone(), it.clone());
+                        }
+                    }
+                }
+                let n_stream = streams.len();
                 match self.playlists.iter_mut().find(|p| p.id == pid) {
                     Some(p) => {
                         if let Some(src) = p.source.as_mut() {
                             src.keys = keys;
                         }
-                        for path in have {
-                            if !p.tracks.contains(&path) {
-                                p.tracks.push(path);
+                        // Add what's new on the site; keep your order and your removals as they are.
+                        for (k, it) in streams {
+                            p.streams.entry(k).or_insert(it);
+                        }
+                        for e in entries {
+                            if !p.tracks.contains(&e) {
+                                p.tracks.push(e);
                             }
                         }
                     }
                     None => self.playlists.push(Playlist {
                         id: pid,
                         name: info.title.clone(),
-                        tracks: have,
+                        tracks: entries,
                         created: now_secs(),
                         source: Some(store::PlaylistSource { url: info.url.clone(), site: info.site.clone(), keys }),
+                        streams,
                         ..Default::default()
                     }),
                 }
                 store::save_playlists(&self.playlists);
+                self.register_playlist_streams();
                 // The playlist's own picture, fetched in the background.
                 let has_cover = self.playlist(pid).map(|p| p.cover.is_some()).unwrap_or(false);
                 if !info.cover.is_empty() && !has_cover {
@@ -1253,25 +1350,11 @@ impl App {
                         }
                     });
                 }
-                let need: Vec<YtItem> = {
-                    let sh = self.yt.shared.lk();
-                    items
-                        .into_iter()
-                        .filter(|i| !self.lib.yt_ids.contains(&i.id))
-                        .filter(|i| {
-                            !sh.jobs.iter().any(|j| {
-                                j.item.id == i.id && matches!(j.status, ytdlp::JobStatus::Waiting | ytdlp::JobStatus::Downloading { .. } | ytdlp::JobStatus::Saving)
-                            })
-                        })
-                        .collect()
-                };
-                let n = need.len();
-                self.yt.download(need, Some(pid));
                 self.go(Route::Playlist(pid));
-                self.toast(if n == 0 {
+                self.toast(if n_stream == 0 {
                     format!("Saved “{}”", info.title)
                 } else {
-                    format!("Saved “{}” · downloading {}", info.title, theme::plural(n, "song", "songs"))
+                    format!("Saved “{}” · it plays online until you download it", info.title)
                 });
             }
             Action::PickPlaylistCover(pid) => {
@@ -1771,7 +1854,7 @@ impl App {
                 let pls: Vec<(u64, String, usize)> = self
                     .playlists
                     .iter()
-                    .map(|p| (p.id, p.name.clone(), p.tracks.iter().filter(|t| self.lib.by_path(t).is_some()).count()))
+                    .map(|p| (p.id, p.name.clone(), p.tracks.iter().filter(|t| self.entry_id(t).is_some()).count()))
                     .collect();
                 for (id, name, n) in pls {
                     self.playlist_nav_item(ui, Some(id), &name, n, r == Route::Playlist(id));
@@ -1852,7 +1935,7 @@ impl App {
                 let pls: Vec<(u64, String, usize)> = self
                     .playlists
                     .iter()
-                    .map(|p| (p.id, p.name.clone(), p.tracks.iter().filter(|t| self.lib.by_path(t).is_some()).count()))
+                    .map(|p| (p.id, p.name.clone(), p.tracks.iter().filter(|t| self.entry_id(t).is_some()).count()))
                     .collect();
                 for (id, name, n) in pls {
                     self.rail_playlist(ui, Some(id), &name, n, r == Route::Playlist(id));
@@ -2144,7 +2227,12 @@ impl App {
         let sy = rect.center().y + 20.0;
         let seek = Rect::from_center_size(pos2(cx, sy), vec2(seek_w - 104.0, 12.0));
         let (pos, dur) = self.seek_bar(ui, seek, Id::new("seek"));
-        w::text(ui.painter(), pos2(seek.left() - S3, sy), Align2::RIGHT_CENTER, &fmt_time(pos), small(), TEXT_2, 60.0);
+        if self.ps.waiting {
+            // A song that plays from its site is on its way.
+            w::spinner(ui, pos2(seek.left() - S3 - 7.0, sy), 6.0, TEXT_2);
+        } else {
+            w::text(ui.painter(), pos2(seek.left() - S3, sy), Align2::RIGHT_CENTER, &fmt_time(pos), small(), TEXT_2, 60.0);
+        }
         w::text(ui.painter(), pos2(seek.right() + S3, sy), Align2::LEFT_CENTER, &fmt_time(dur), small(), TEXT_2, 60.0);
 
         // Right: queue, mini, volume

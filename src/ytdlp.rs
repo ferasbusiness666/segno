@@ -228,8 +228,9 @@ pub struct Shared {
 
 pub enum YtEvent {
     Downloaded { path: PathBuf, playlist: Option<u64>, key: String },
-    PreviewReady { item: YtItem, path: PathBuf, art: Option<(u64, [u8; 3])> },
-    PreviewFailed { msg: String },
+    /// A song that plays from its site is ready to play from this file.
+    Fetched { item: YtItem, path: PathBuf, art: Option<(u64, [u8; 3])> },
+    FetchFailed { item: YtItem, msg: String },
 }
 
 /// Where songs played from YouTube (before downloading) are kept for a few days.
@@ -275,8 +276,6 @@ pub struct Yt {
     search_gen: Arc<AtomicU64>,
     current: Arc<Mutex<Option<(u64, Child)>>>,
     tools: Arc<Mutex<Option<Tools>>>,
-    preview_child: Arc<Mutex<Option<(u64, Child)>>>,
-    preview_latest: Arc<Mutex<String>>,
     ev_tx: Sender<YtEvent>,
 }
 
@@ -307,8 +306,6 @@ impl Yt {
             search_gen: Arc::new(AtomicU64::new(0)),
             current: Arc::new(Mutex::new(None)),
             tools: Arc::new(Mutex::new(None)),
-            preview_child: Arc::new(Mutex::new(None)),
-            preview_latest: Arc::new(Mutex::new(String::new())),
             ev_tx: ev_tx2,
         };
         let ctx = yt.worker_ctx();
@@ -377,51 +374,9 @@ impl Yt {
         });
     }
 
-    /// Play a song before downloading it: fetch it into the preview cache, then tell the app.
-    pub fn preview(&self, item: YtItem) {
-        clear_fail();
-        *self.preview_latest.lk() = item.id.clone();
-        // Only one preview at a time: stop the one still loading.
-        if let Some((_, child)) = self.preview_child.lk().as_mut() {
-            let _ = child.kill();
-        }
-        let ready = match self.shared.lk().previews.get(&item.id) {
-            Some(PreviewState::Ready(p)) if p.is_file() => Some(p.clone()),
-            _ => None,
-        };
-        if let Some(path) = ready {
-            let art = preview_cover(&item);
-            let _ = self.ev_tx.send(YtEvent::PreviewReady { item, path, art });
-            (self.notify)();
-            return;
-        }
-        self.shared.lk().previews.insert(item.id.clone(), PreviewState::Loading(0.0));
-        (self.notify)();
-        let ctx = self.worker_ctx();
-        let slot = self.preview_child.clone();
-        let latest = self.preview_latest.clone();
-        let ev_tx = self.ev_tx.clone();
-        std::thread::spawn(move || {
-            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_preview(&ctx, &item, &slot)))
-                .unwrap_or_else(|_| Err("Something went wrong. Try again.".into()));
-            let is_latest = *latest.lk() == item.id;
-            match res {
-                Ok(path) => {
-                    let art = preview_cover(&item);
-                    ctx.shared.lk().previews.insert(item.id.clone(), PreviewState::Ready(path.clone()));
-                    if is_latest {
-                        let _ = ev_tx.send(YtEvent::PreviewReady { item, path, art });
-                    }
-                }
-                Err(msg) => {
-                    ctx.shared.lk().previews.insert(item.id.clone(), PreviewState::Failed(msg.clone()));
-                    if is_latest && msg != "Cancelled" {
-                        let _ = ev_tx.send(YtEvent::PreviewFailed { msg });
-                    }
-                }
-            }
-            (ctx.notify)();
-        });
+    /// A handle the audio thread can use to fetch streamed songs on its own.
+    pub fn fetcher(&self) -> StreamFetcher {
+        StreamFetcher { ctx: self.worker_ctx(), ev_tx: self.ev_tx.clone() }
     }
 
     /// Find songs like the seeds (YouTube's mixes for them), leaving out what you already have.
@@ -568,6 +523,58 @@ impl Yt {
             .iter()
             .filter(|j| matches!(j.status, JobStatus::Waiting | JobStatus::Downloading { .. } | JobStatus::Saving))
             .count()
+    }
+}
+
+/// Fetches songs that play from their site into the preview cache. Several can be on their
+/// way at once (the one playing and the next in line).
+#[derive(Clone)]
+pub struct StreamFetcher {
+    ctx: WorkerCtx,
+    ev_tx: Sender<YtEvent>,
+}
+
+impl StreamFetcher {
+    /// `done` gets the file (or why it failed). Asking again while it's on its way does nothing.
+    pub fn fetch(&self, item: YtItem, done: impl FnOnce(Result<PathBuf, String>) + Send + 'static) {
+        {
+            let mut sh = self.ctx.shared.lk();
+            if let Some(PreviewState::Ready(p)) = sh.previews.get(&item.id) {
+                if p.is_file() {
+                    let path = p.clone();
+                    drop(sh);
+                    done(Ok(path));
+                    return;
+                }
+            }
+            if matches!(sh.previews.get(&item.id), Some(PreviewState::Loading(_))) {
+                return;
+            }
+            sh.previews.insert(item.id.clone(), PreviewState::Loading(0.0));
+        }
+        clear_fail();
+        (self.ctx.notify)();
+        let ctx = self.ctx.clone();
+        let ev_tx = self.ev_tx.clone();
+        std::thread::spawn(move || {
+            let slot = Mutex::new(None);
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_preview(&ctx, &item, &slot)))
+                .unwrap_or_else(|_| Err("Something went wrong. Try again.".into()));
+            match res {
+                Ok(path) => {
+                    let art = preview_cover(&item);
+                    ctx.shared.lk().previews.insert(item.id.clone(), PreviewState::Ready(path.clone()));
+                    done(Ok(path.clone()));
+                    let _ = ev_tx.send(YtEvent::Fetched { item, path, art });
+                }
+                Err(msg) => {
+                    ctx.shared.lk().previews.insert(item.id.clone(), PreviewState::Failed(msg.clone()));
+                    done(Err(msg.clone()));
+                    let _ = ev_tx.send(YtEvent::FetchFailed { item, msg });
+                }
+            }
+            (ctx.notify)();
+        });
     }
 }
 
@@ -1408,6 +1415,16 @@ fn run_job(ctx: &WorkerCtx, job: &Job) -> Result<PathBuf, String> {
     }
     cleanup_tmp(&tmp, &stem);
     Ok(dest)
+}
+
+/// A song's file in the preview cache, if it was fetched before (and is complete).
+pub fn cached(item: &YtItem) -> Option<PathBuf> {
+    let dir = preview_dir();
+    let stem = item.stem();
+    if !dir.join(format!("{stem}.json")).is_file() {
+        return None;
+    }
+    find_audio(&dir, &stem)
 }
 
 /// The downloaded audio file for a stem, whatever its extension.

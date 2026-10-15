@@ -27,6 +27,8 @@ pub struct QItem {
     /// Library track id.
     pub id: u64,
     pub path: PathBuf,
+    /// Plays from its site: the file arrives when the app has fetched it (see `Cmd::Fetched`).
+    pub stream: bool,
 }
 
 impl QItem {
@@ -35,7 +37,13 @@ impl QItem {
             uid: UID.fetch_add(1, Ordering::Relaxed),
             id,
             path,
+            stream: false,
         }
+    }
+
+    /// A song that plays from its site. `path` is its fetched file, or a placeholder until then.
+    pub fn stream(id: u64, path: PathBuf) -> Self {
+        Self { stream: true, ..Self::new(id, path) }
     }
 }
 
@@ -75,6 +83,10 @@ pub enum Cmd {
     InsertAt { at: usize, items: Vec<QItem> },
     /// Keep going with songs from the library when the queue runs out.
     SetAutoplay(bool),
+    /// A streamed song's file is ready (every queue entry for that song gets it).
+    Fetched { id: u64, path: PathBuf },
+    /// A streamed song couldn't be fetched: if it's the one waiting, move on.
+    FetchFailed { id: u64 },
 }
 
 #[derive(Clone, Default)]
@@ -95,6 +107,8 @@ pub struct State {
     /// Bumped on every change, so the UI and the media overlay know when to refresh.
     pub version: u64,
     pub autoplay: bool,
+    /// The current song plays from its site and is still being fetched.
+    pub waiting: bool,
 }
 
 impl State {
@@ -110,7 +124,12 @@ pub struct PlayerHandle {
     live: Arc<Mutex<Option<Arc<rodio::Player>>>>,
     /// The library in "Songs" order, used to keep playing after the queue ends.
     pub library: Arc<Mutex<Vec<(u64, PathBuf)>>>,
+    /// Asks for a streamed song's file (by track id). The answer comes back as `Cmd::Fetched`
+    /// or `Cmd::FetchFailed`, straight to this thread, so it works while the window sleeps.
+    pub fetcher: Fetcher,
 }
+
+pub type Fetcher = Arc<Mutex<Option<Arc<dyn Fn(u64) + Send + Sync>>>>;
 
 impl PlayerHandle {
     pub fn send(&self, cmd: Cmd) {
@@ -137,11 +156,13 @@ pub fn spawn(notify: Arc<dyn Fn() + Send + Sync>) -> PlayerHandle {
     }));
     let live = Arc::new(Mutex::new(None));
     let library = Arc::new(Mutex::new(Vec::new()));
+    let fetcher: Fetcher = Arc::new(Mutex::new(None));
     let handle = PlayerHandle {
         tx: tx.clone(),
         state: state.clone(),
         live: live.clone(),
         library: library.clone(),
+        fetcher: fetcher.clone(),
     };
     std::thread::Builder::new()
         .name("audio".into())
@@ -157,6 +178,7 @@ pub fn spawn(notify: Arc<dyn Fn() + Send + Sync>) -> PlayerHandle {
                 rng: seed(),
                 last_device_error: None,
                 library,
+                fetcher,
             };
             eng.run(rx);
         })
@@ -193,9 +215,29 @@ struct Engine {
     rng: u64,
     last_device_error: Option<Instant>,
     library: Arc<Mutex<Vec<(u64, PathBuf)>>>,
+    fetcher: Fetcher,
 }
 
 impl Engine {
+    /// Ask the app to fetch a streamed song (it answers with `Cmd::Fetched`).
+    fn want(&self, id: u64) {
+        let f = self.fetcher.lk().clone();
+        if let Some(f) = f {
+            f(id);
+        }
+    }
+
+    /// While a song plays, get the next one ready if it plays from its site.
+    fn prefetch_next(&self) {
+        let next = {
+            let s = self.state.lk();
+            s.queue.get(s.index + 1).filter(|q| q.stream && !q.path.is_file()).map(|q| q.id)
+        };
+        if let Some(id) = next {
+            self.want(id);
+        }
+    }
+
     fn run(&mut self, rx: Receiver<Cmd>) {
         loop {
             let cmd = match self.teardown_at {
@@ -317,8 +359,22 @@ impl Engine {
             let mut s = self.state.lk();
             s.playing = false;
             s.idle_pos = 0.0;
+            s.waiting = false;
             return false;
         };
+        if item.stream && !item.path.is_file() {
+            // Not here yet: wait for the app to fetch it, then `Cmd::Fetched` starts it.
+            let mut s = self.state.lk();
+            s.waiting = true;
+            s.playing = autoplay;
+            s.duration = 0.0;
+            s.idle_pos = 0.0;
+            s.error = None;
+            drop(s);
+            self.want(item.id);
+            return true;
+        }
+        self.state.lk().waiting = false;
         if !self.ensure_sink() {
             self.state.lk().playing = false;
             return false;
@@ -380,10 +436,11 @@ impl Engine {
         s.playing = autoplay;
         s.idle_pos = at;
         s.error = None;
+        drop(s);
         if !autoplay {
-            drop(s);
             self.teardown_at = Some(Instant::now() + Duration::from_secs(20));
         }
+        self.prefetch_next();
         true
     }
 
@@ -694,6 +751,37 @@ impl Engine {
                 }
             }
             Cmd::SetAutoplay(on) => self.state.lk().autoplay = on,
+            Cmd::Fetched { id, path } => {
+                let (start, intent) = {
+                    let mut guard = self.state.lk();
+                    let s = &mut *guard;
+                    for q in s.queue.iter_mut().chain(s.original.iter_mut()) {
+                        if q.id == id && q.stream {
+                            q.path = path.clone();
+                        }
+                    }
+                    let cur = s.queue.get(s.index).map(|q| q.id);
+                    (s.waiting && cur == Some(id), s.playing)
+                };
+                if start {
+                    self.load_current(0.0, intent);
+                }
+            }
+            Cmd::FetchFailed { id } => {
+                let skip = {
+                    let mut s = self.state.lk();
+                    let cur = s.queue.get(s.index).map(|q| q.id);
+                    let skip = s.waiting && cur == Some(id);
+                    if skip {
+                        s.waiting = false;
+                    }
+                    skip
+                };
+                if skip {
+                    // Not `natural`: with repeat-one it would just try the same song again.
+                    self.advance(false);
+                }
+            }
             Cmd::TrackEnded(gen) => {
                 if gen == self.gen {
                     self.advance(true);

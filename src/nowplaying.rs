@@ -37,7 +37,8 @@ impl App {
         let now = ctx.input(|i| i.time);
         let dt = (now - self.vinyl_last).clamp(0.0, 0.1) as f32;
         self.vinyl_last = now;
-        let spin = ctx.animate_bool_with_time(Id::new("vinyl-spin"), self.ps.playing && self.settings.spin_record, 0.8);
+        let turning = self.ps.playing && !self.ps.waiting && self.settings.spin_record;
+        let spin = ctx.animate_bool_with_time(Id::new("vinyl-spin"), turning, 0.8);
         let tau = std::f32::consts::TAU;
         self.vinyl_angle = (self.vinyl_angle + dt * spin * 3.49) % tau;
         self.backdrop_angle = (self.backdrop_angle + dt * spin * 0.035) % tau;

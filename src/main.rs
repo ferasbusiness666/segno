@@ -11,6 +11,7 @@ mod spotify;
 mod queue;
 mod nowplaying;
 mod foryou;
+mod stream;
 mod store;
 mod theme;
 mod update;

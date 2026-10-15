@@ -141,17 +141,69 @@ fn menu_item_danger(ui: &mut Ui, icon: &str, label: &str) -> Response {
     resp
 }
 
+struct RowInfo {
+    title: String,
+    artist: String,
+    primary: String,
+    album: String,
+    duration: f32,
+    added: u64,
+    track_no: u32,
+    art: Option<u64>,
+    /// Set when the song isn't downloaded and plays from its site.
+    stream: Option<YtItem>,
+}
+
+impl RowInfo {
+    fn primary_artist(&self) -> &str {
+        &self.primary
+    }
+}
+
 pub(crate) fn menu_sep(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(MENU_W, 9.0), Sense::hover());
     ui.painter().line_segment([pos2(r.left() + 6.0, r.center().y), pos2(r.right() - 6.0, r.center().y)], Stroke::new(1.0, HAIRLINE));
 }
 
 impl App {
+    /// What a song row shows: a library song, or one that plays from its site.
+    fn row_info(&self, id: u64) -> Option<RowInfo> {
+        if let Some(t) = self.lib.get(id) {
+            return Some(RowInfo {
+                title: t.title.clone(),
+                artist: t.artist.clone(),
+                primary: t.primary_artist().to_string(),
+                album: t.album.clone(),
+                duration: t.duration,
+                added: t.added,
+                track_no: t.track_no,
+                art: t.art,
+                stream: None,
+            });
+        }
+        let tr = self.transient.get(&id)?;
+        let tags = crate::ytdlp::clean_meta(&serde_json::Value::Null, &tr.item);
+        Some(RowInfo {
+            title: tags.title,
+            primary: tags.artist.clone(),
+            artist: tags.artist,
+            album: tags.album,
+            duration: tr.item.duration,
+            added: 0,
+            track_no: 0,
+            art: tr.art,
+            stream: Some(tr.item.clone()),
+        })
+    }
+
     // -----------------------------------------------------------------------------------------
     // Song context menu
 
     pub fn song_menu(&mut self, ui: &mut Ui, id: u64, playlist: Option<(u64, usize)>) {
         ui.set_max_width(MENU_W);
+        let in_lib = self.lib.get(id).is_some();
+        // A song that plays from its site (not downloaded).
+        let stream = if in_lib { None } else { self.transient.get(&id).map(|t| t.item.clone()) };
         if menu_item(ui, icons::LIST_START, "Play next").clicked() {
             self.actions.push(Action::PlayNext(vec![id]));
             ui.close();
@@ -161,10 +213,20 @@ impl App {
             ui.close();
         }
         menu_sep(ui);
-        let loved = self.loved.contains(&id);
-        if menu_item(ui, icons::HEART, if loved { "Remove from Loved songs" } else { "Love" }).clicked() {
-            self.actions.push(Action::ToggleLove(id));
-            ui.close();
+        if let Some(item) = &stream {
+            let busy = self.yt.shared.lk().jobs.iter().any(|j| {
+                j.item.id == item.id && matches!(j.status, JobStatus::Waiting | JobStatus::Downloading { .. } | JobStatus::Saving)
+            });
+            if !busy && menu_item(ui, icons::ARROW_DOWN_TO_LINE, "Download").clicked() {
+                self.actions.push(Action::DownloadStream(id));
+                ui.close();
+            }
+        } else {
+            let loved = self.loved.contains(&id);
+            if menu_item(ui, icons::HEART, if loved { "Remove from Loved songs" } else { "Love" }).clicked() {
+                self.actions.push(Action::ToggleLove(id));
+                ui.close();
+            }
         }
         let sub_label = (
             egui::RichText::new(icons::LIST_PLUS).font(FontId::new(16.0, icon_family())).color(TEXT_2),
@@ -205,18 +267,25 @@ impl App {
                 ui.close();
             }
         }
-        if menu_item(ui, icons::FOLDER_OPEN, "Show in folder").clicked() {
+        if let Some(item) = &stream {
+            if menu_item(ui, icons::LINK, &format!("Open on {}", item.source())).clicked() {
+                self.actions.push(Action::OpenUrl(item.page()));
+                ui.close();
+            }
+        } else if menu_item(ui, icons::FOLDER_OPEN, "Show in folder").clicked() {
             self.actions.push(Action::Reveal(id));
             ui.close();
         }
-        menu_sep(ui);
+        if playlist.is_some() || in_lib {
+            menu_sep(ui);
+        }
         if let Some((pid, index)) = playlist {
             if menu_item(ui, icons::X, "Remove from this playlist").clicked() {
                 self.actions.push(Action::RemoveFromPlaylist { pid, index });
                 ui.close();
             }
         }
-        if menu_item_danger(ui, icons::TRASH, "Delete from disk").clicked() {
+        if in_lib && menu_item_danger(ui, icons::TRASH, "Delete from disk").clicked() {
             self.actions.push(Action::AskDeleteFile(id));
             ui.close();
         }
@@ -427,7 +496,7 @@ impl App {
     /// One song row. `list` is what plays (in order) when the row is played.
     fn track_row(&mut self, ui: &mut Ui, rect: Rect, list: &Arc<Vec<u64>>, i: usize, mode: RowMode, pl_index: Option<usize>) {
         let Some(&id) = list.get(i) else { return };
-        let Some(t) = self.lib.get(id).cloned() else { return };
+        let Some(t) = self.row_info(id) else { return };
         let resp = ui.interact(rect, Id::new(("track", id, i, mode.playlist)), Sense::click_and_drag());
         let (h, _) = w::hover_press(ui, &resp);
         let is_cur = self.current_id() == Some(id);
@@ -463,7 +532,9 @@ impl App {
         }
         if hv < 0.99 {
             let a = 1.0 - hv;
-            if is_cur && self.ps.playing {
+            if is_cur && self.ps.waiting {
+                w::spinner(ui, num_c, 7.0, with_alpha(ACCENT, a));
+            } else if is_cur && self.ps.playing {
                 icons::now_playing_bars(&p, num_c, 13.0, with_alpha(ACCENT, a));
             } else if mode.numbers {
                 let n = if mode.track_numbers && t.track_no > 0 { t.track_no as usize } else { i + 1 };
@@ -472,11 +543,19 @@ impl App {
             }
         }
 
-        // Art
+        // Art (a song that plays from its site shows its thumbnail until it has a cover)
         if let Some(ax) = cols.art {
             let ar = Rect::from_min_size(pos2(ax, y - 20.0), vec2(40.0, 40.0));
-            let tex = self.art.cover(t.art, ArtSize::S);
-            w::art(&p, ar, tex, R_SM, Color32::WHITE);
+            match (&t.art, &t.stream) {
+                (None, Some(item)) => {
+                    let tex = item.thumb_url().and_then(|u| self.art.get(ArtKey::Url(u)));
+                    w::thumb_square(&p, ar, tex, R_SM);
+                }
+                _ => {
+                    let tex = self.art.cover(t.art, ArtSize::S);
+                    w::art(&p, ar, tex, R_SM, Color32::WHITE);
+                }
+            }
         }
         let x = cols.text;
 
@@ -501,19 +580,28 @@ impl App {
             w::text(&p, pos2(ax, y), Align2::LEFT_CENTER, &t.album, small(), TEXT_2, aw);
         }
         if let Some((dx, dw)) = cols.added {
-            w::text(&p, pos2(dx, y), Align2::LEFT_CENTER, &when_added(t.added), small(), TEXT_2, dw);
+            let when = if t.stream.is_some() { "Not downloaded".to_string() } else { when_added(t.added) };
+            w::text(&p, pos2(dx, y), Align2::LEFT_CENTER, &when, small(), TEXT_2, dw);
         }
         w::text(&p, pos2(cols.dur_right, y), Align2::RIGHT_CENTER, &fmt_time(t.duration), small(), TEXT_2, 60.0);
 
         // Love (always visible when loved, otherwise on hover) and more, fading in with the hover.
-        let loved = self.loved.contains(&id);
-        let mut fade = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt("hover-controls"));
-        fade.multiply_opacity(if loved { 1.0 } else { hv });
-        if loved || hv > 0.01 {
+        // A song that plays from its site has a download button there instead, always shown, so
+        // you can tell at a glance what's on your computer.
+        if let Some(item) = &t.stream {
             let lr = Rect::from_center_size(heart_c, Vec2::splat(30.0));
-            let lresp = fade.interact(lr, resp.id.with("love"), if loved || hovering { Sense::click() } else { Sense::hover() });
-            if self.love_button(&fade, lr, lresp, id).clicked() {
-                self.actions.push(Action::ToggleLove(id));
+            let lresp = ui.interact(lr, resp.id.with("save"), Sense::click());
+            self.save_preview_button(ui, lr, lresp, item);
+        } else {
+            let loved = self.loved.contains(&id);
+            let mut fade = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt("hover-controls"));
+            fade.multiply_opacity(if loved { 1.0 } else { hv });
+            if loved || hv > 0.01 {
+                let lr = Rect::from_center_size(heart_c, Vec2::splat(30.0));
+                let lresp = fade.interact(lr, resp.id.with("love"), if loved || hovering { Sense::click() } else { Sense::hover() });
+                if self.love_button(&fade, lr, lresp, id).clicked() {
+                    self.actions.push(Action::ToggleLove(id));
+                }
             }
         }
         let mut fade2 = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt("hover-more"));
@@ -983,6 +1071,31 @@ impl App {
             let have: std::collections::HashSet<u64> = ids.iter().copied().collect();
             self.add_songs_popup(&add, crate::queue::AddTo::Playlist(pid), &have);
             let more = w::icon_button(&mut bu, 40.0, icons::ELLIPSIS, false, "More");
+            // Songs that still play from their site: one button keeps them all.
+            let waiting = {
+                let busy: std::collections::HashSet<String> = self
+                    .yt
+                    .shared
+                    .lk()
+                    .jobs
+                    .iter()
+                    .filter(|j| matches!(j.status, JobStatus::Waiting | JobStatus::Downloading { .. } | JobStatus::Saving))
+                    .map(|j| j.item.id.clone())
+                    .collect();
+                self.playlist(pid)
+                    .map(|p| p.tracks.iter().filter_map(|t| store::stream_key(t)).filter(|k| !busy.contains(*k)).count())
+                    .unwrap_or(0)
+            };
+            if waiting > 0 {
+                bu.add_space(S1);
+                let label = format!("Download {waiting}");
+                if w::pill(&mut bu, &label, Some(icons::ARROW_DOWN_TO_LINE), PillKind::Secondary)
+                    .on_hover_text("Keep these songs on your computer so they play without internet")
+                    .clicked()
+                {
+                    self.actions.push(Action::DownloadPlaylist(pid));
+                }
+            }
             egui::Popup::menu(&more).show(|ui| {
                 ui.set_max_width(MENU_W);
                 if menu_item(ui, icons::PENCIL, "Rename").clicked() {
@@ -1164,7 +1277,10 @@ impl App {
         };
         let ids: Arc<Vec<u64>> = Arc::new(entries.iter().map(|e| e.1).collect());
         let pl_index: Vec<usize> = entries.iter().map(|e| e.0).collect();
-        let mut meta = theme::songs_and_length(ids.len(), self.lib.total_duration(&ids));
+        // Songs that play from their site count too.
+        let stream_len: f32 = ids.iter().filter(|i| self.lib.get(**i).is_none()).filter_map(|i| self.transient.get(i)).map(|t| t.item.duration).sum();
+        let mut meta = theme::songs_and_length(ids.len(), self.lib.total_duration(&ids) + stream_len);
+        let not_downloaded = ids.iter().filter(|i| self.lib.get(**i).is_none()).count();
         // An imported playlist still filling up.
         let (downloading, failed) = match pid {
             Some(id) => {
@@ -1180,7 +1296,9 @@ impl App {
             None => (0, 0),
         };
         if downloading > 0 {
-            meta = format!("{meta} · downloading {} more", downloading);
+            meta = format!("{meta} · downloading {downloading}");
+        } else if not_downloaded > 0 {
+            meta = format!("{meta} · {not_downloaded} not downloaded");
         }
         let art = pid.and_then(|id| self.playlist(id)).and_then(|p| p.cover);
         let mode = RowMode { playlist: pid, album_col: self.list_has_albums(&ids), ..RowMode::list() };
@@ -1518,15 +1636,16 @@ impl App {
         let mut su = ui.new_child(egui::UiBuilder::new().max_rect(save_r));
         let save_icon = if saved.is_some() { icons::CHECK } else { icons::LIST_PLUS };
         let kind = if saved.is_some() { PillKind::Secondary } else { PillKind::Primary };
-        let sresp = w::pill(&mut su, save_label, Some(save_icon), kind).on_hover_text(if saved.is_some() {
-            "Open it in your playlists"
+        let save_tip = if saved.is_some() {
+            "Open it in your playlists".to_string()
         } else {
-            "Adds it to your playlists and downloads its songs into it"
-        });
+            "Adds it to your playlists. The songs play online until you download them.".to_string()
+        };
+        let sresp = w::pill(&mut su, save_label, Some(save_icon), kind).on_hover_text(save_tip);
         if sresp.clicked() {
             match saved {
-                Some(pid) if need.is_empty() => self.actions.push(Action::Go(Route::Playlist(pid))),
-                _ => self.actions.push(Action::SavePlaylist { info: pl.clone(), items: items.to_vec() }),
+                Some(pid) => self.actions.push(Action::Go(Route::Playlist(pid))),
+                None => self.actions.push(Action::SavePlaylist { info: pl.clone(), items: items.to_vec() }),
             }
         }
         let mut du = ui.new_child(egui::UiBuilder::new().max_rect(dl_r));

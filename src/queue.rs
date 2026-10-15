@@ -170,7 +170,9 @@ impl App {
         let ah = ui.ctx().animate_bool_with_time(id.with("ah"), resp.hovered(), T_FAST);
         if current {
             p.rect_filled(art_r, R_SM, with_alpha(Color32::BLACK, 0.5));
-            if ah > 0.0 || !self.ps.playing {
+            if self.ps.waiting && ah == 0.0 {
+                w::spinner(ui, art_r.center(), 8.0, TEXT);
+            } else if ah > 0.0 || !self.ps.playing {
                 if self.ps.playing {
                     icons::pause(p, art_r.center(), 13.0, TEXT);
                 } else {
@@ -255,7 +257,8 @@ impl App {
             self.actions.push(if current { Action::Toggle } else { Action::JumpTo(index) });
         }
         let song = q.id;
-        let in_lib = self.lib.get(song).is_some();
+        // Library songs and songs that play from their site both have a menu.
+        let in_lib = self.lib.get(song).is_some() || self.is_stream(song);
         let uid = q.uid;
         resp.context_menu(|ui| {
             if !current {

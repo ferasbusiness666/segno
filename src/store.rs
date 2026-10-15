@@ -100,6 +100,9 @@ pub struct Resume {
     pub original: Vec<PathBuf>,
     pub index: usize,
     pub position: f32,
+    /// Songs in the queue that play from their site (their entries above are `stream_entry`s).
+    #[serde(default)]
+    pub streams: Vec<crate::ytdlp::YtItem>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -186,6 +189,27 @@ pub struct Playlist {
     /// Where an imported playlist came from, and its songs in their original order.
     #[serde(default)]
     pub source: Option<PlaylistSource>,
+    /// Songs in this playlist that play from their site because they aren't downloaded,
+    /// by song key. Their place in `tracks` is a `stream_entry`.
+    #[serde(default)]
+    pub streams: std::collections::HashMap<String, crate::ytdlp::YtItem>,
+}
+
+const STREAM: &str = "segno-stream:";
+
+/// A playlist entry for a song that plays from its site (not a file).
+pub fn stream_entry(key: &str) -> PathBuf {
+    PathBuf::from(format!("{STREAM}{key}"))
+}
+
+/// The song key of a `stream_entry`, or None for a real file.
+pub fn stream_key(p: &Path) -> Option<&str> {
+    p.to_str()?.strip_prefix(STREAM)
+}
+
+/// The track id used for a song that plays from its site.
+pub fn stream_id(key: &str) -> u64 {
+    hash_bytes(format!("stream:{key}").as_bytes())
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
