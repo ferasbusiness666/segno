@@ -104,6 +104,8 @@ pub struct Library {
     pub artists: Vec<Artist>,
     pub artist_by_key: HashMap<u64, usize>,
     pub yt_ids: HashSet<String>,
+    /// Song key (from the file's tags) → track id.
+    pub by_key: HashMap<String, u64>,
     hay: Vec<String>,
     /// Bumped whenever the track list changes (for cached sorts in the UI).
     pub version: u64,
@@ -128,6 +130,7 @@ impl Library {
             .map(|t| format!("{} {} {}", t.title, t.artist, t.album).to_lowercase())
             .collect();
         self.yt_ids = tracks.iter().filter_map(|t| t.yt_id.clone()).collect();
+        self.by_key = tracks.iter().filter_map(|t| t.yt_id.clone().map(|k| (k, t.id))).collect();
 
         let mut albums: Vec<Album> = Vec::new();
         let mut album_by_key: HashMap<u64, usize> = HashMap::new();
@@ -581,6 +584,11 @@ fn split_name(stem: &str) -> (String, String) {
 
 pub fn yt_id_from_comment(c: &str) -> Option<String> {
     let c = c.trim();
+    // Songs from other sites: "segno:soundcloud:123", "segno:spotify:4uLU6…".
+    if let Some(rest) = c.strip_prefix("segno:") {
+        let key = rest.split_whitespace().next().unwrap_or("");
+        return (!key.is_empty()).then(|| key.to_string());
+    }
     let id = if let Some(rest) = c.strip_prefix("youtube:") {
         rest.trim()
     } else if let Some(i) = c.find("watch?v=") {

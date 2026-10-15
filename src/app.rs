@@ -6,7 +6,7 @@ use crate::art::{ArtCache, ArtSize};
 use crate::library::{self, Library, ScanCmd};
 use crate::platform::{self, MediaAction, TrayAction};
 use crate::player::{self, Cmd, PlayerHandle, QItem};
-use crate::store::{self, now_secs, path_id, Playlist, Repeat, Settings};
+use crate::store::{self, now_secs, path_id, Playlist, Settings};
 use crate::theme::{self, *};
 use crate::widgets::{self as w, PillKind};
 use crate::update::{self, Updater};
@@ -30,6 +30,7 @@ pub enum Route {
     Loved,
     Search,
     Downloads,
+    ForYou,
     Settings,
     NowPlaying,
 }
@@ -74,6 +75,12 @@ pub enum Action {
     DeleteFile(u64),
     YtSearch(String),
     YtDownload { items: Vec<YtItem>, playlist_name: Option<String> },
+    /// Keep a playlist from a link in the sidebar and download its songs into it.
+    SavePlaylist { info: ytdlp::PlaylistInfo, items: Vec<YtItem> },
+    /// Pick a picture for a playlist from your computer.
+    PickPlaylistCover(u64),
+    RemovePlaylistCover(u64),
+    RetryPlaylist(u64),
     YtRetry(u64),
     YtCancel(u64),
     YtClearFinished,
@@ -84,6 +91,7 @@ pub enum Action {
     Rescan,
     ToggleMini,
     ToggleQueue,
+    ToggleImmersive,
     SetCloseToTray(bool),
     Toast(String),
     Undo,
@@ -166,6 +174,11 @@ pub struct App {
     pub loved: HashSet<u64>,
     /// Songs playing from YouTube that aren't downloaded, keyed by the id of their cache file.
     pub transient: std::collections::HashMap<u64, Transient>,
+    /// Which song key each downloaded file is (until the library has scanned it).
+    path_keys: std::collections::HashMap<PathBuf, String>,
+    /// Playlist covers fetched in the background: (playlist, art key, color).
+    cover_tx: std::sync::mpsc::Sender<(u64, u64, [u8; 3])>,
+    cover_rx: Receiver<(u64, u64, [u8; 3])>,
     autoplay_synced: (u64, store::SortBy),
     pub song_order: Vec<PathBuf>,
     order_version: u64,
@@ -193,6 +206,24 @@ pub struct App {
     pub yt_requested: bool,
     link_pending: Option<(String, f64)>,
     pub queue_open: bool,
+    /// Full-screen Now Playing.
+    pub immersive: bool,
+    /// Up next beside the record, on the Now Playing page and in full screen.
+    pub np_queue: bool,
+    pub imm_queue: bool,
+    pub vinyl_angle: f32,
+    pub backdrop_angle: f32,
+    pub vinyl_last: f64,
+    /// When the mouse last moved in full screen (the controls fade after a few quiet seconds).
+    pub imm_active: f64,
+    /// Songs you played, for suggestions.
+    pub history: Vec<crate::foryou::Played>,
+    pub played_noted: Option<u64>,
+    pub suggest_turn: u64,
+    pub suggest_auto_tried: bool,
+    /// "Add songs" box next to the queue.
+    pub add_query: String,
+    pub add_focus: bool,
     pub mini: bool,
     normal_size: Option<egui::Vec2>,
     normal_pos: Option<egui::Pos2>,
@@ -252,6 +283,7 @@ impl App {
         };
         let (media_tx, media_rx) = channel();
 
+        let (cover_tx, cover_rx) = channel();
         let mut app = App {
             player,
             ps: Default::default(),
@@ -268,6 +300,9 @@ impl App {
             playlists,
             loved,
             transient: std::collections::HashMap::new(),
+            path_keys: std::collections::HashMap::new(),
+            cover_tx,
+            cover_rx,
             autoplay_synced: (u64::MAX, store::SortBy::Added),
             song_order: store::load_song_order(),
             order_version: 0,
@@ -292,6 +327,19 @@ impl App {
             yt_requested: false,
             link_pending: None,
             queue_open: false,
+            immersive: false,
+            np_queue: true,
+            imm_queue: false,
+            vinyl_angle: 0.0,
+            backdrop_angle: 0.0,
+            vinyl_last: 0.0,
+            imm_active: 0.0,
+            history: crate::foryou::load_history(),
+            played_noted: None,
+            suggest_turn: 0,
+            suggest_auto_tried: false,
+            add_query: String::new(),
+            add_focus: false,
             mini: false,
             normal_size: None,
             normal_pos: None,
@@ -354,6 +402,16 @@ impl App {
         ids.iter()
             .filter_map(|id| self.lib.get(*id).map(|t| QItem::new(t.id, t.path.clone())))
             .collect()
+    }
+
+    /// A playlist's picture: its own cover, else the first song's.
+    pub fn playlist_art(&self, pid: u64) -> (Option<u64>, Option<[u8; 3]>) {
+        let Some(p) = self.playlist(pid) else { return (None, None) };
+        if p.cover.is_some() {
+            return (p.cover, p.color);
+        }
+        let first = p.tracks.iter().find_map(|path| self.lib.by_path(path).filter(|t| t.art.is_some()));
+        (first.and_then(|t| t.art), first.and_then(|t| t.color))
     }
 
     pub fn current_id(&self) -> Option<u64> {
@@ -419,18 +477,27 @@ impl App {
         let cur = self.current_id();
         let queued: HashSet<u64> = self.ps.queue.iter().map(|q| q.id).collect();
         let start = cur.and_then(|c| songs.iter().position(|i| *i == c)).map(|p| p + 1).unwrap_or(0);
-        let mut out = Vec::new();
-        for k in 0..songs.len() {
-            let id = songs[(start + k) % songs.len()];
-            if Some(id) == cur || queued.contains(&id) {
-                continue;
+        // Same as the player: songs not queued yet; if everything was, it goes around again.
+        let pick = |skip_queued: bool| {
+            let mut out = Vec::new();
+            for k in 0..songs.len() {
+                let id = songs[(start + k) % songs.len()];
+                if Some(id) == cur || (skip_queued && queued.contains(&id)) {
+                    continue;
+                }
+                out.push(id);
+                if out.len() >= n {
+                    break;
+                }
             }
-            out.push(id);
-            if out.len() >= n {
-                break;
-            }
+            out
+        };
+        let out = pick(true);
+        if out.is_empty() {
+            pick(false)
+        } else {
+            out
         }
-        out
     }
 
     /// Hand the player the library order so it can keep going after the queue ends.
@@ -630,11 +697,24 @@ impl App {
         }
         while let Ok(ev) = self.yt.events.try_recv() {
             match ev {
-                ytdlp::YtEvent::Downloaded { path, playlist } => {
+                ytdlp::YtEvent::Downloaded { path, playlist, key } => {
+                    self.path_keys.insert(path.clone(), key.clone());
                     if let Some(pid) = playlist {
+                        let lib = &self.lib;
+                        let keys = &self.path_keys;
                         if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
                             if !p.tracks.contains(&path) {
-                                p.tracks.push(path.clone());
+                                // Imported playlists keep their original order as songs arrive.
+                                let pos = p.source.as_ref().and_then(|src| {
+                                    let rank = |k: &str| src.keys.iter().position(|x| x == k);
+                                    let mine = rank(&key)?;
+                                    p.tracks.iter().position(|t| {
+                                        let tk = keys.get(t).cloned().or_else(|| lib.by_path(t).and_then(|x| x.yt_id.clone()));
+                                        tk.and_then(|k| rank(&k)).map(|r| r > mine).unwrap_or(false)
+                                    })
+                                });
+                                let at = pos.unwrap_or(p.tracks.len());
+                                p.tracks.insert(at, path.clone());
                             }
                         }
                         store::save_playlists(&self.playlists);
@@ -673,6 +753,15 @@ impl App {
         }
         self.sync_autoplay();
         self.sync_updates();
+        while let Ok((pid, key, color)) = self.cover_rx.try_recv() {
+            if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
+                if p.cover.is_none() {
+                    p.cover = Some(key);
+                    p.color = Some(color);
+                }
+            }
+            store::save_playlists(&self.playlists);
+        }
         while let Ok(a) = self.tray_rx.try_recv() {
             match a {
                 TrayAction::Show => self.show_window(ctx),
@@ -700,6 +789,7 @@ impl App {
         }
         self.ps = self.player.snapshot();
         self.pos = self.player.position();
+        self.note_played();
 
         // Keep the Windows media overlay in sync (only when something changed).
         let cur = self.current_id();
@@ -939,6 +1029,7 @@ impl App {
                     name: name.clone(),
                     tracks,
                     created: now_secs(),
+                    ..Default::default()
                 });
                 store::save_playlists(&self.playlists);
                 self.go(Route::Playlist(id));
@@ -1100,6 +1191,7 @@ impl App {
                             name,
                             tracks: Vec::new(),
                             created: now_secs(),
+                            ..Default::default()
                         });
                         store::save_playlists(&self.playlists);
                         id
@@ -1112,6 +1204,101 @@ impl App {
                 }
             }
             Action::YtRetry(uid) => self.yt.retry(uid),
+            Action::RetryPlaylist(pid) => self.yt.retry_playlist(pid),
+            Action::SavePlaylist { info, items } => {
+                self.yt_requested = true;
+                let keys: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
+                // Saving the same link again updates that playlist instead of making a copy.
+                let existing = self
+                    .playlists
+                    .iter()
+                    .find(|p| p.source.as_ref().map(|s| s.url == info.url).unwrap_or(false))
+                    .map(|p| p.id);
+                let pid = existing.unwrap_or_else(|| store::hash_bytes(format!("{}{}", now_secs(), info.url).as_bytes()));
+                // Songs already in the library go straight in, in the playlist's order.
+                let have: Vec<PathBuf> = items
+                    .iter()
+                    .filter_map(|i| self.lib.by_key.get(&i.id).and_then(|t| self.lib.get(*t)).map(|t| t.path.clone()))
+                    .collect();
+                match self.playlists.iter_mut().find(|p| p.id == pid) {
+                    Some(p) => {
+                        if let Some(src) = p.source.as_mut() {
+                            src.keys = keys;
+                        }
+                        for path in have {
+                            if !p.tracks.contains(&path) {
+                                p.tracks.push(path);
+                            }
+                        }
+                    }
+                    None => self.playlists.push(Playlist {
+                        id: pid,
+                        name: info.title.clone(),
+                        tracks: have,
+                        created: now_secs(),
+                        source: Some(store::PlaylistSource { url: info.url.clone(), site: info.site.clone(), keys }),
+                        ..Default::default()
+                    }),
+                }
+                store::save_playlists(&self.playlists);
+                // The playlist's own picture, fetched in the background.
+                let has_cover = self.playlist(pid).map(|p| p.cover.is_some()).unwrap_or(false);
+                if !info.cover.is_empty() && !has_cover {
+                    let (tx, url) = (self.cover_tx.clone(), info.cover.clone());
+                    let ctx = self.ctx.clone();
+                    std::thread::spawn(move || {
+                        if let Some((key, color)) = crate::net::get_bytes(&url, 16 << 20).ok().and_then(|b| crate::art::store_cover(&b, None)) {
+                            let _ = tx.send((pid, key, color));
+                            ctx.request_repaint();
+                        }
+                    });
+                }
+                let need: Vec<YtItem> = {
+                    let sh = self.yt.shared.lk();
+                    items
+                        .into_iter()
+                        .filter(|i| !self.lib.yt_ids.contains(&i.id))
+                        .filter(|i| {
+                            !sh.jobs.iter().any(|j| {
+                                j.item.id == i.id && matches!(j.status, ytdlp::JobStatus::Waiting | ytdlp::JobStatus::Downloading { .. } | ytdlp::JobStatus::Saving)
+                            })
+                        })
+                        .collect()
+                };
+                let n = need.len();
+                self.yt.download(need, Some(pid));
+                self.go(Route::Playlist(pid));
+                self.toast(if n == 0 {
+                    format!("Saved “{}”", info.title)
+                } else {
+                    format!("Saved “{}” · downloading {}", info.title, theme::plural(n, "song", "songs"))
+                });
+            }
+            Action::PickPlaylistCover(pid) => {
+                let picked = rfd::FileDialog::new()
+                    .set_title("Choose a picture for this playlist")
+                    .add_filter("Pictures", &["jpg", "jpeg", "png", "webp", "gif", "bmp"])
+                    .pick_file();
+                if let Some(file) = picked {
+                    match std::fs::read(&file).ok().and_then(|b| crate::art::store_cover(&b, None)) {
+                        Some((key, color)) => {
+                            if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
+                                p.cover = Some(key);
+                                p.color = Some(color);
+                            }
+                            store::save_playlists(&self.playlists);
+                        }
+                        None => self.toast("That picture couldn't be opened. Try a JPG or PNG."),
+                    }
+                }
+            }
+            Action::RemovePlaylistCover(pid) => {
+                if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
+                    p.cover = None;
+                    p.color = None;
+                }
+                store::save_playlists(&self.playlists);
+            }
             Action::YtCancel(uid) => self.yt.cancel(uid),
             Action::YtClearFinished => self.yt.clear_finished(),
             Action::YtUpdate => self.yt.update_now(),
@@ -1139,8 +1326,29 @@ impl App {
                     platform::open_folder(d);
                 }
             }
-            Action::ToggleMini => self.toggle_mini(ctx),
-            Action::ToggleQueue => self.queue_open = !self.queue_open,
+            Action::ToggleMini => {
+                if self.immersive {
+                    self.immersive = false;
+                    ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
+                }
+                self.toggle_mini(ctx)
+            }
+            Action::ToggleQueue => {
+                // On Now Playing the queue sits beside the record instead of in the side panel.
+                if self.route == Route::NowPlaying {
+                    self.np_queue = !self.np_queue;
+                } else {
+                    self.queue_open = !self.queue_open;
+                }
+            }
+            Action::ToggleImmersive => {
+                if self.mini {
+                    self.toggle_mini(ctx);
+                }
+                self.immersive = !self.immersive;
+                ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.immersive));
+                self.imm_active = ctx.input(|i| i.time);
+            }
             Action::SetCloseToTray(v) => {
                 self.settings.close_to_tray = v;
                 self.mark_dirty();
@@ -1270,12 +1478,17 @@ impl App {
             if i.consume_key(egui::Modifiers::ALT, Key::ArrowLeft) {
                 self.actions.push(Action::Back);
             }
+            if i.consume_key(egui::Modifiers::NONE, Key::F11) {
+                self.actions.push(Action::ToggleImmersive);
+            }
             if !typing {
                 if i.consume_key(egui::Modifiers::NONE, Key::Space) {
                     self.actions.push(Action::Toggle);
                 }
                 if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
-                    if self.mini {
+                    if self.immersive {
+                        self.actions.push(Action::ToggleImmersive);
+                    } else if self.mini {
                         self.actions.push(Action::ToggleMini);
                     } else if self.route == Route::NowPlaying {
                         self.actions.push(Action::Back);
@@ -1294,6 +1507,12 @@ impl App {
         }
         // Minimized or fully covered by other windows: nothing to show, so don't draw.
         if ctx.input(|i| i.viewport().minimized.unwrap_or(false) || i.viewport().visible() == Some(false)) {
+            return;
+        }
+        // The record turns on the Now Playing screens: ~30 fps, only while one is showing.
+        let record_shown = self.immersive || (!self.mini && self.route == Route::NowPlaying);
+        if record_shown && self.settings.spin_record && self.ps.current().is_some() {
+            ctx.request_repaint_after(Duration::from_millis(33));
             return;
         }
         // One frame per second, landing just after the second ticks over: the time label
@@ -1369,6 +1588,14 @@ impl eframe::App for App {
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, BG);
 
+        if self.immersive {
+            self.immersive_ui(ui);
+            self.overlays(ui, full);
+            self.run_actions(&ctx);
+            self.schedule_repaint(&ctx, 0.0);
+            return;
+        }
+
         if self.settings.music_dir.is_none() {
             self.welcome(ui, full);
             self.run_actions(&ctx);
@@ -1380,7 +1607,7 @@ impl eframe::App for App {
             self.settings.sidebar_collapsed = false;
             self.settings.save();
         }
-        let q_t = ctx.animate_bool_with_time(Id::new("queue-open"), self.queue_open, T);
+        let q_t = ctx.animate_bool_with_time(Id::new("queue-open"), self.queue_open && self.route != Route::NowPlaying, T);
         let c_t = ctx.animate_bool_with_time(Id::new("side-folded"), self.settings.sidebar_collapsed, T);
         let g = GUTTER;
         let bar = Rect::from_min_max(pos2(full.left(), full.bottom() - BAR_H), full.max);
@@ -1507,6 +1734,7 @@ impl App {
             (icons::MUSIC, "Songs", Route::Songs),
             (icons::DISC, "Albums", Route::Albums),
             (icons::USER, "Artists", Route::Artists),
+            (icons::SPARKLES, "For you", Route::ForYou),
         ];
         for (icon, label, route) in nav {
             let sel = r == route || matches!((&r, &route), (Route::Album(_), Route::Albums) | (Route::Artist(_), Route::Artists));
@@ -1592,6 +1820,7 @@ impl App {
             (icons::MUSIC, "Songs", Route::Songs, 0),
             (icons::DISC, "Albums", Route::Albums, 0),
             (icons::USER, "Artists", Route::Artists, 0),
+            (icons::SPARKLES, "For you", Route::ForYou, 0),
             (icons::DOWNLOAD, "Downloads", Route::Downloads, active),
         ];
         let items = items.map(|(i, l, r, n)| (i, l, r, (n > 0).then(|| n.min(99).to_string())));
@@ -1687,9 +1916,7 @@ impl App {
                 icons::heart_filled(p, art.center(), 18.0, ON_ACCENT);
             }
             Some(id) => {
-                let first = self
-                    .playlist(id)
-                    .and_then(|pl| pl.tracks.iter().find_map(|path| self.lib.by_path(path).and_then(|t| t.art)));
+                let first = self.playlist_art(id).0;
                 let tex = self.art.cover(first, ArtSize::S);
                 if first.is_some() {
                     w::art(ui.painter(), art, tex, R_SM, Color32::WHITE);
@@ -1788,9 +2015,7 @@ impl App {
                 icons::heart_filled(p, art.center(), 16.0, ON_ACCENT);
             }
             Some(id) => {
-                let first = self
-                    .playlist(id)
-                    .and_then(|pl| pl.tracks.iter().find_map(|path| self.lib.by_path(path).and_then(|t| t.art)));
+                let first = self.playlist_art(id).0;
                 let tex = self.art.cover(first, ArtSize::S);
                 if first.is_some() {
                     w::art(ui.painter(), art, tex, R_SM, Color32::WHITE);
@@ -1833,10 +2058,19 @@ impl App {
             }));
         }
         if let Some(id) = pid {
+            let has_cover = self.playlist(id).map(|p| p.cover.is_some()).unwrap_or(false);
             resp.context_menu(|ui| {
                 if crate::views::menu_item(ui, icons::PENCIL, "Rename").clicked() {
                     self.actions.push(Action::Go(Route::Playlist(id)));
                     self.actions.push(Action::StartRename(id));
+                    ui.close();
+                }
+                if crate::views::menu_item(ui, icons::IMAGE, "Choose picture…").clicked() {
+                    self.actions.push(Action::PickPlaylistCover(id));
+                    ui.close();
+                }
+                if has_cover && crate::views::menu_item(ui, icons::X, "Remove picture").clicked() {
+                    self.actions.push(Action::RemovePlaylistCover(id));
                     ui.close();
                 }
                 if crate::views::menu_item(ui, icons::TRASH, "Delete playlist").clicked() {
@@ -1850,7 +2084,6 @@ impl App {
     /// The bottom bar. Returns the seek bar width (used to pace repaints).
     fn player_bar(&mut self, ui: &mut Ui, rect: Rect) -> f32 {
         let cur = self.now_info();
-        let has = self.ps.current().is_some();
         let pad = S4;
         let left_w = (rect.width() * 0.3).min(360.0);
         let right_w = left_w;
@@ -1873,7 +2106,10 @@ impl App {
             let tx = art_r.right() + S3;
             let tw = (rect.left() + left_w - tx - 40.0).max(40.0);
             let title_r = w::text(ui.painter(), pos2(tx, rect.center().y - 9.0), Align2::LEFT_CENTER, &t.title, body_strong(), TEXT, tw);
-            let sub = if t.preview.is_some() { format!("{} · From YouTube", t.artist) } else { t.artist.clone() };
+            let sub = match &t.preview {
+                Some(i) => format!("{} · From {}", t.artist, i.source()),
+                None => t.artist.clone(),
+            };
             let artist_r = w::text(ui.painter(), pos2(tx, rect.center().y + 10.0), Align2::LEFT_CENTER, &sub, small(), TEXT_2, tw);
             if let Some(ak) = t.artist_key {
                 let ar = ui.interact(artist_r, Id::new("bar-artist"), Sense::click());
@@ -1902,101 +2138,22 @@ impl App {
         }
 
         // Center: controls + seek
-        let ctrl_y = rect.center().y - 12.0;
         let cx = center.center().x;
-        let mut c = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(pos2(cx, ctrl_y), vec2(260.0, 40.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
-        c.spacing_mut().item_spacing.x = S3;
-        let shuffle_tip = if self.ps.shuffle { "Shuffle is on" } else { "Shuffle" };
-        if w::icon_button(&mut c, 32.0, icons::SHUFFLE, self.ps.shuffle, shuffle_tip).clicked() {
-            self.actions.push(Action::ToggleShuffle);
-        }
-        if w::transport_button(&mut c, 36.0, w::Transport::Prev, "Previous (Ctrl+←)").clicked() {
-            self.actions.push(Action::Prev);
-        }
-        if w::play_circle(&mut c, 40.0, self.ps.playing, true).clicked() {
-            self.actions.push(Action::Toggle);
-        }
-        if w::transport_button(&mut c, 36.0, w::Transport::Next, "Next (Ctrl+→)").clicked() {
-            self.actions.push(Action::Next);
-        }
-        let (rep_icon, rep_tip) = match self.ps.repeat {
-            Repeat::Off => (icons::REPEAT, "Repeat"),
-            Repeat::All => (icons::REPEAT, "Repeating all"),
-            Repeat::One => (icons::REPEAT_1, "Repeating this song"),
-        };
-        if w::icon_button(&mut c, 32.0, rep_icon, self.ps.repeat != Repeat::Off, rep_tip).clicked() {
-            self.actions.push(Action::CycleRepeat);
-        }
-
-        let dur = self.now_duration();
+        self.transport_row(ui, pos2(cx, rect.center().y - 12.0), false, "bar");
         let seek_w = center.width().min(620.0);
         let sy = rect.center().y + 20.0;
         let seek = Rect::from_center_size(pos2(cx, sy), vec2(seek_w - 104.0, 12.0));
-        let pos = self.seek_preview.unwrap_or(self.pos);
-        let frac = if dur > 0.0 { pos / dur } else { 0.0 };
-        let out = w::slider(ui, seek, Id::new("seek"), frac, true);
-        if let Some(v) = out.value {
-            self.seek_preview = Some(v * dur);
-        }
-        if out.released {
-            if let Some(p) = self.seek_preview.take() {
-                if has {
-                    self.actions.push(Action::Seek(p));
-                    self.pos = p;
-                }
-            }
-        }
-        if !out.dragging && !out.released && out.value.is_none() {
-            self.seek_preview = None;
-        }
-        let tcol = TEXT_2;
-        w::text(ui.painter(), pos2(seek.left() - S3, sy), Align2::RIGHT_CENTER, &fmt_time(pos), small(), tcol, 60.0);
-        w::text(ui.painter(), pos2(seek.right() + S3, sy), Align2::LEFT_CENTER, &fmt_time(dur), small(), tcol, 60.0);
+        let (pos, dur) = self.seek_bar(ui, seek, Id::new("seek"));
+        w::text(ui.painter(), pos2(seek.left() - S3, sy), Align2::RIGHT_CENTER, &fmt_time(pos), small(), TEXT_2, 60.0);
+        w::text(ui.painter(), pos2(seek.right() + S3, sy), Align2::LEFT_CENTER, &fmt_time(dur), small(), TEXT_2, 60.0);
 
         // Right: queue, mini, volume
         let mut rx = rect.right() - pad;
         let vol_w = 96.0;
         let vol_r = Rect::from_min_max(pos2(rx - vol_w, rect.center().y - 6.0), pos2(rx, rect.center().y + 6.0));
-        let shown_vol = if self.ps.muted { 0.0 } else { self.ps.volume };
-        let vo = w::slider(ui, vol_r, Id::new("volume"), shown_vol, false);
-        if vo.hovered {
-            let dy: f32 = ui.input(|i| {
-                i.events
-                    .iter()
-                    .map(|e| match e {
-                        egui::Event::MouseWheel { delta, .. } => delta.y,
-                        _ => 0.0,
-                    })
-                    .sum()
-            });
-            if dy.abs() > 0.0 {
-                let v = (self.ps.volume + dy.signum() * 0.05).clamp(0.0, 1.0);
-                self.actions.push(Action::Volume(v));
-                self.ps.volume = v;
-            }
-        }
-        if let Some(v) = vo.value {
-            if (v - self.ps.volume).abs() > 0.002 || self.ps.muted {
-                self.actions.push(Action::Volume(v));
-                self.ps.volume = v;
-                self.ps.muted = false;
-            }
-        }
         rx = vol_r.left() - S1;
-        let vicon = if self.ps.muted || self.ps.volume <= 0.001 {
-            icons::VOLUME_X
-        } else if self.ps.volume < 0.35 {
-            icons::VOLUME_0
-        } else if self.ps.volume < 0.7 {
-            icons::VOLUME_1
-        } else {
-            icons::VOLUME_2
-        };
         let vr = Rect::from_center_size(pos2(rx - 16.0, rect.center().y), Vec2::splat(32.0));
-        let vresp = ui.interact(vr, Id::new("mute"), Sense::click());
-        if w::icon_button_at(ui, vr, vresp, vicon, false, if self.ps.muted { "Unmute" } else { "Mute" }).clicked() {
-            self.actions.push(Action::ToggleMute);
-        }
+        self.volume_control(ui, vol_r, vr.center(), "bar");
         rx = vr.left() - S1;
         let mr = Rect::from_center_size(pos2(rx - 16.0, rect.center().y), Vec2::splat(32.0));
         let mresp = ui.interact(mr, Id::new("mini-btn"), Sense::click());
@@ -2018,7 +2175,8 @@ impl App {
                 self.actions.push(Action::AddToQueue(d.ids.clone()));
             }
         }
-        if w::icon_button_at(ui, qr, qresp, icons::LIST_MUSIC, self.queue_open, "Queue · drop songs here to add them").clicked() {
+        let q_on = if self.route == Route::NowPlaying { self.np_queue } else { self.queue_open };
+        if w::icon_button_at(ui, qr, qresp, icons::LIST_MUSIC, q_on, "Queue · drop songs here to add them").clicked() {
             self.actions.push(Action::ToggleQueue);
         }
         seek.width()
@@ -2078,11 +2236,6 @@ impl App {
         if a < 0.3 {
             return;
         }
-        // The whole panel takes songs dragged in from anywhere (added to the end).
-        let drop_resp = ui.interact(rect, Id::new("queue-drop"), Sense::hover());
-        let dragging_in = egui::DragAndDrop::payload::<DragSongs>(ui.ctx())
-            .map(|d| d.from_queue.is_none())
-            .unwrap_or(false);
         let inner = rect.shrink2(vec2(S3, S4));
         let p = ui.painter().clone();
         w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Queue", h2(), TEXT, 200.0);
@@ -2091,165 +2244,9 @@ impl App {
         if w::icon_button_at(ui, cr, cresp, icons::X, false, "Close").clicked() {
             self.actions.push(Action::ToggleQueue);
         }
-        let list_r = Rect::from_min_max(pos2(inner.left(), inner.top() + 36.0), pos2(inner.right(), inner.bottom() - if dragging_in { 56.0 } else { 0.0 }));
-        {
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(list_r).layout(egui::Layout::top_down(egui::Align::Min)));
-            self.queue_list(&mut child, list_r);
-        }
-        if dragging_in {
-            let hover = drop_resp.contains_pointer();
-            let hr = Rect::from_min_max(pos2(inner.left(), inner.bottom() - 48.0), inner.max);
-            let hl = ui.ctx().animate_bool_with_time(Id::new("q-drop-h"), hover, T_FAST);
-            ui.painter().rect_filled(hr, R_MD, lerp_color(RAISED, with_alpha(ACCENT, 0.22), hl));
-            ui.painter().rect_stroke(hr, R_MD, egui::Stroke::new(1.0, with_alpha(ACCENT, 0.4 + 0.6 * hl)), egui::StrokeKind::Inside);
-            icons::glyph(ui.painter(), pos2(hr.left() + 24.0, hr.center().y), icons::LIST_END, 16.0, ACCENT);
-            w::text(ui.painter(), pos2(hr.left() + 44.0, hr.center().y), Align2::LEFT_CENTER, "Drop to add to the queue", body_strong(), TEXT, hr.width() - 56.0);
-        }
-        if let Some(d) = drop_resp.dnd_release_payload::<DragSongs>() {
-            if d.from_queue.is_none() {
-                self.actions.push(Action::AddToQueue(d.ids.clone()));
-            }
-        }
-    }
-
-    fn queue_list(&mut self, ui: &mut Ui, list_r: Rect) {
-        let Some(cur) = self.ps.current().cloned() else {
-            ui.add_space(S8);
-            w::empty_state(ui, icons::LIST_MUSIC, "Nothing queued", "Play a song, or drag songs here to line them up.", None);
-            return;
-        };
-        w::section_label(ui.painter(), pos2(list_r.left() + S1, list_r.top() + 10.0), "Now playing");
-        ui.add_space(22.0);
-        self.queue_row(ui, &cur, self.ps.index, true);
-        ui.add_space(S3);
-        let upcoming: Vec<(usize, QItem)> = self
-            .ps
-            .queue
-            .iter()
-            .enumerate()
-            .skip(self.ps.index + 1)
-            .map(|(i, q)| (i, q.clone()))
-            .collect();
-        let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-        w::section_label(ui.painter(), pos2(hr.left() + S1, hr.center().y), "Next up");
-        if !upcoming.is_empty() {
-            let cb = Rect::from_min_size(pos2(hr.right() - 44.0, hr.top()), vec2(44.0, 24.0));
-            let mut cu = ui.new_child(egui::UiBuilder::new().max_rect(cb));
-            if w::link_button(&mut cu, "Clear").clicked() {
-                self.actions.push(Action::ClearQueue);
-            }
-        }
-        if upcoming.is_empty() {
-            // Show what plays next from the library, so "Next" is never a dead end.
-            let auto = self.autoplay_preview(6);
-            if auto.is_empty() {
-                ui.add_space(S2);
-                w::text(ui.painter(), pos2(list_r.left() + S1, ui.cursor().top() + 10.0), Align2::LEFT_CENTER, "That's the last song.", small(), TEXT_3, 260.0);
-                return;
-            }
-            ui.add_space(S1);
-            w::text(ui.painter(), pos2(list_r.left() + S1, ui.cursor().top() + 8.0), Align2::LEFT_CENTER, "From your library", small(), TEXT_3, 260.0);
-            ui.add_space(18.0);
-            for id in auto {
-                self.autoplay_row(ui, id);
-            }
-            return;
-        }
-        egui::ScrollArea::vertical()
-            .id_salt("queue-scroll")
-            .auto_shrink([false, false])
-            .show_rows(ui, 52.0, upcoming.len(), |ui, range| {
-                for (i, q) in &upcoming[range] {
-                    self.queue_row(ui, q, *i, false);
-                }
-            });
-    }
-
-    fn autoplay_row(&mut self, ui: &mut Ui, id: u64) {
-        let wdt = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(vec2(wdt, 52.0), Sense::click());
-        let (h, _) = w::hover_press(ui, &resp);
-        let Some(info) = self.info_for(id) else { return };
-        let p = ui.painter().clone();
-        w::hover_surface(&p, rect, h);
-        let art_r = Rect::from_min_size(pos2(rect.left() + S1 + 2.0, rect.top() + 6.0), vec2(40.0, 40.0));
-        let tex = self.art.cover(info.art, ArtSize::S);
-        w::art(&p, art_r, tex, R_SM, with_alpha(Color32::WHITE, 0.7));
-        let tx = art_r.right() + S3;
-        let tw = rect.right() - tx - 8.0;
-        w::text(&p, pos2(tx, rect.center().y - 8.0), Align2::LEFT_CENTER, &info.title, body(), lerp_color(TEXT_2, TEXT, h), tw);
-        w::text(&p, pos2(tx, rect.center().y + 9.0), Align2::LEFT_CENTER, &info.artist, small(), TEXT_3, tw);
-        if resp.on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Play now").clicked() {
-            self.actions.push(Action::PlayFromAutoplay(id));
-        }
-    }
-
-    fn queue_row(&mut self, ui: &mut Ui, q: &QItem, index: usize, current: bool) {
-        let wdt = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(vec2(wdt, 52.0), Sense::click_and_drag());
-        let (h, _) = w::hover_press(ui, &resp);
-        let info = self.info_for(q.id);
-        let p = ui.painter().clone();
-        w::hover_surface(&p, rect, h);
-        let art_r = Rect::from_min_size(pos2(rect.left() + S1 + 2.0, rect.top() + 6.0), vec2(40.0, 40.0));
-        let tex = self.art.cover(info.as_ref().and_then(|t| t.art), ArtSize::S);
-        w::art(&p, art_r, tex, R_SM, Color32::WHITE);
-        let tx = art_r.right() + S3;
-        let tw = rect.right() - tx - 36.0;
-        let (title, artist) = match &info {
-            Some(t) => (t.title.clone(), t.artist.clone()),
-            None => (q.path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), String::new()),
-        };
-        w::text(&p, pos2(tx, rect.center().y - 8.0), Align2::LEFT_CENTER, &title, body(), if current { ACCENT } else { TEXT }, tw);
-        w::text(&p, pos2(tx, rect.center().y + 9.0), Align2::LEFT_CENTER, &artist, small(), TEXT_2, tw);
-        if !current && h > 0.05 {
-            let xr = Rect::from_center_size(pos2(rect.right() - 18.0, rect.center().y), Vec2::splat(28.0));
-            let xresp = ui.interact(xr, resp.id.with("x"), Sense::click());
-            if w::icon_button_at(ui, xr, xresp, icons::X, false, "Remove from queue").clicked() {
-                self.actions.push(Action::RemoveFromQueue(q.uid));
-            }
-        }
-        if !current && resp.drag_started() {
-            egui::DragAndDrop::set_payload(
-                ui.ctx(),
-                DragSongs {
-                    ids: vec![q.id],
-                    from_playlist: None,
-                    from_queue: Some(index),
-                    from_songs: None,
-                },
-            );
-        }
-        // Drop line: songs dragged from the queue move; songs from elsewhere are inserted.
-        let above = ui.input(|i| i.pointer.hover_pos().map(|p| p.y < rect.center().y).unwrap_or(true)) && !current;
-        if resp.dnd_hover_payload::<DragSongs>().is_some() {
-            let y = if above { rect.top() } else { rect.bottom() };
-            ui.painter().line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], egui::Stroke::new(2.0, ACCENT));
-        }
-        if let Some(d) = resp.dnd_release_payload::<DragSongs>() {
-            let to = if above { index } else { index + 1 };
-            match d.from_queue {
-                Some(from) => {
-                    let mut to = to;
-                    if from < to {
-                        to -= 1;
-                    }
-                    self.actions.push(Action::MoveQueue { from, to });
-                }
-                None => self.actions.push(Action::InsertInQueue { at: to, ids: d.ids.clone() }),
-            }
-        }
-        if resp.double_clicked() || (resp.clicked() && !current) {
-            if !current {
-                self.actions.push(Action::JumpTo(index));
-            }
-        }
-        if self.lib.get(q.id).is_some() {
-            let id = q.id;
-            resp.context_menu(|ui| {
-                self.song_menu(ui, id, None);
-            });
-        }
+        let list_r = Rect::from_min_max(pos2(inner.left(), inner.top() + 36.0), inner.max);
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(list_r).layout(egui::Layout::top_down(egui::Align::Min)));
+        self.queue_list(&mut child, list_r, true, "panel");
     }
 
     fn overlays(&mut self, ui: &mut Ui, full: Rect) {

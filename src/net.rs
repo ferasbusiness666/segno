@@ -68,3 +68,21 @@ pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(u64, Option<u64
     progress(done, total);
     Ok(())
 }
+
+/// A web page as text, asked for the way a browser would (some sites serve bots a bare page).
+pub fn get_page(url: &str) -> Result<String, String> {
+    let mut resp = agent()
+        .get(url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+        )
+        .header("Accept-Language", "en")
+        .call()
+        .map_err(|e| e.to_string())?;
+    resp.body_mut()
+        .with_config()
+        .limit(16 << 20)
+        .read_to_string()
+        .map_err(|e| e.to_string())
+}

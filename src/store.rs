@@ -127,6 +127,8 @@ pub struct Settings {
     pub update_checked: u64,
     /// The version that last ran, to say "Updated to …" once after an update.
     pub last_version: String,
+    /// The record turns on the Now Playing screens (redraws ~30 times a second while shown).
+    pub spin_record: bool,
 }
 
 impl Default for Settings {
@@ -153,6 +155,7 @@ impl Default for Settings {
             auto_update: true,
             update_checked: 0,
             last_version: String::new(),
+            spin_record: true,
         }
     }
 }
@@ -169,12 +172,28 @@ impl Settings {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Playlist {
     pub id: u64,
     pub name: String,
     pub tracks: Vec<PathBuf>,
     pub created: u64,
+    /// Your own picture, or the one from the site it was imported from (art cache key).
+    #[serde(default)]
+    pub cover: Option<u64>,
+    #[serde(default)]
+    pub color: Option<[u8; 3]>,
+    /// Where an imported playlist came from, and its songs in their original order.
+    #[serde(default)]
+    pub source: Option<PlaylistSource>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct PlaylistSource {
+    pub url: String,
+    pub site: String,
+    /// Song keys (the same ones written into the files' tags), in the playlist's order.
+    pub keys: Vec<String>,
 }
 
 pub fn load_playlists() -> Vec<Playlist> {

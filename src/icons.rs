@@ -177,4 +177,6 @@ pub fn now_playing_bars(p: &Painter, c: Pos2, size: f32, color: Color32) {
 }
 pub const PANEL_CLOSE: &str = "\u{E21C}";
 pub const PANEL_OPEN: &str = "\u{E21D}";
-pub const GRIP: &str = "\u{E0EB}";
+pub const SPARKLES: &str = "\u{E412}";
+pub const IMAGE: &str = "\u{E0F6}";
+pub const MINIMIZE: &str = "\u{E11B}";

@@ -1,4 +1,6 @@
-//! YouTube search and downloads through yt-dlp.
+//! Search and downloads through yt-dlp: YouTube by default, and links from any site yt-dlp
+//! supports (SoundCloud, Bandcamp, …). Spotify links are read from Spotify and matched on
+//! YouTube (see `spotify.rs`), because Spotify's audio can't be downloaded.
 //!
 //! - yt-dlp (and a JavaScript runtime it needs for YouTube) is fetched on first use and kept in
 //!   the app's local folder. If Node, Deno or Bun is already installed, that is used instead.
@@ -8,6 +10,7 @@
 
 use crate::store::LockExt;
 use crate::store::{bin_dir, now_secs};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -17,27 +20,85 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct YtItem {
+    /// What identifies the song: an 11-character YouTube id, or "site:id" for other sites
+    /// ("soundcloud:123", "spotify:4uLU6…"). Written into the file's tags, so the app knows
+    /// which results are already in the library.
     pub id: String,
     pub title: String,
     pub channel: String,
     pub duration: f32,
+    /// The page to download from. Empty for YouTube (built from the id).
+    #[serde(default)]
+    pub url: String,
+    /// Thumbnail or cover picture. Empty for YouTube (built from the id).
+    #[serde(default)]
+    pub thumb: String,
+    /// Where it's from, for other sites ("SoundCloud"). Empty for YouTube.
+    #[serde(default)]
+    pub site: String,
+    /// Songs from Spotify links: what to look up on YouTube to get the audio.
+    #[serde(default)]
+    pub find: String,
+    /// Album name, when the site says (Spotify albums).
+    #[serde(default)]
+    pub album: String,
 }
 
 impl YtItem {
-    pub fn thumb_url(&self) -> String {
-        format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", self.id)
+    pub fn is_youtube(&self) -> bool {
+        self.id.len() == 11 && !self.id.contains(':')
     }
+    pub fn thumb_url(&self) -> Option<String> {
+        if !self.thumb.is_empty() {
+            Some(self.thumb.clone())
+        } else if self.is_youtube() {
+            Some(format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", self.id))
+        } else {
+            None
+        }
+    }
+    /// What yt-dlp is given to fetch the audio.
     pub fn url(&self) -> String {
-        format!("https://www.youtube.com/watch?v={}", self.id)
+        if !self.find.is_empty() {
+            format!("ytsearch5:{}", self.find)
+        } else if !self.url.is_empty() {
+            self.url.clone()
+        } else {
+            format!("https://www.youtube.com/watch?v={}", self.id)
+        }
+    }
+    /// The page to open in a browser.
+    pub fn page(&self) -> String {
+        if !self.url.is_empty() {
+            self.url.clone()
+        } else {
+            format!("https://www.youtube.com/watch?v={}", self.id)
+        }
+    }
+    /// A file-name-safe version of the id, for temp and preview files.
+    pub fn stem(&self) -> String {
+        self.id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect()
+    }
+    /// "YouTube", "SoundCloud", "Spotify"…
+    pub fn source(&self) -> &str {
+        if self.site.is_empty() { "YouTube" } else { &self.site }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PlaylistInfo {
     pub title: String,
     pub channel: String,
+    /// The link it came from (to know whether it's already saved).
+    pub url: String,
+    /// Its cover picture, if the site has one.
+    pub cover: String,
+    pub site: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -57,7 +118,7 @@ pub enum Search {
     Failed { query: String, msg: String },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum JobStatus {
     Waiting,
     Downloading { pct: f32, speed: String },
@@ -66,12 +127,86 @@ pub enum JobStatus {
     Failed(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Job {
     pub uid: u64,
     pub item: YtItem,
     pub status: JobStatus,
     pub playlist: Option<u64>,
+}
+
+/// The Downloads list, kept between runs.
+fn jobs_path() -> PathBuf {
+    crate::store::data_dir().join("downloads.json")
+}
+
+fn save_jobs(jobs: &[Job]) {
+    // Newest 300 are plenty of history.
+    let start = jobs.len().saturating_sub(300);
+    crate::store::save_json(&jobs_path(), &jobs[start..].to_vec());
+}
+
+/// Load the saved list. Downloads that were still going when Segno closed start again.
+fn load_jobs() -> Vec<Job> {
+    let mut jobs: Vec<Job> = crate::store::load_json(&jobs_path()).unwrap_or_default();
+    for j in &mut jobs {
+        if matches!(j.status, JobStatus::Downloading { .. } | JobStatus::Saving) {
+            j.status = JobStatus::Waiting;
+        }
+    }
+    let max = jobs.iter().map(|j| j.uid).max().unwrap_or(0);
+    JOB_UID.fetch_max(max + 1, Ordering::SeqCst);
+    jobs
+}
+
+/// A song to find more like it: its YouTube id if known, otherwise words to search for.
+#[derive(Clone, Debug)]
+pub struct Seed {
+    pub id: Option<String>,
+    pub find: String,
+    /// Shown as "Songs like …".
+    pub artist: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum Suggest {
+    Idle,
+    Loading { had: Vec<YtItem>, from: Vec<String> },
+    Ready { items: Vec<YtItem>, from: Vec<String>, at: u64 },
+    Failed(String),
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct SuggestCache {
+    items: Vec<YtItem>,
+    from: Vec<String>,
+    at: u64,
+}
+
+fn suggest_path() -> PathBuf {
+    crate::store::cache_dir().join("suggestions.json")
+}
+
+fn load_suggestions() -> Suggest {
+    match crate::store::load_json::<SuggestCache>(&suggest_path()) {
+        Some(c) if !c.items.is_empty() => Suggest::Ready { items: c.items, from: c.from, at: c.at },
+        _ => Suggest::Idle,
+    }
+}
+
+/// "artist|title", lowercase letters and digits only, to spot the same song twice.
+pub fn song_key(artist: &str, title: &str) -> String {
+    let norm = |s: &str| s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect::<String>();
+    format!("{}|{}", norm(artist), norm(title))
+}
+
+/// Best guess at (artist, title) for a YouTube result: "Artist - Song (Official Video)" or the channel.
+pub fn guess_artist_title(item: &YtItem) -> (String, String) {
+    let t = remove_junk(&item.title);
+    match t.split_once(" - ") {
+        Some((a, b)) if !a.trim().is_empty() && !b.trim().is_empty() => (a.trim().to_string(), b.trim().to_string()),
+        _ => (clean_channel(&item.channel), t),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -84,6 +219,7 @@ pub enum PreviewState {
 pub struct Shared {
     pub setup: Setup,
     pub search: Search,
+    pub suggest: Suggest,
     pub jobs: Vec<Job>,
     pub version: Option<String>,
     /// Songs fetched to play before downloading, by video id.
@@ -91,7 +227,7 @@ pub struct Shared {
 }
 
 pub enum YtEvent {
-    Downloaded { path: PathBuf, playlist: Option<u64> },
+    Downloaded { path: PathBuf, playlist: Option<u64>, key: String },
     PreviewReady { item: YtItem, path: PathBuf, art: Option<(u64, [u8; 3])> },
     PreviewFailed { msg: String },
 }
@@ -149,10 +285,13 @@ static UPDATED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 
 impl Yt {
     pub fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
+        let jobs = load_jobs();
+        let resume = jobs.iter().any(|j| j.status == JobStatus::Waiting);
         let shared = Arc::new(Mutex::new(Shared {
             setup: Setup::Unknown,
             search: Search::Idle,
-            jobs: Vec::new(),
+            suggest: load_suggestions(),
+            jobs,
             version: None,
             previews: std::collections::HashMap::new(),
         }));
@@ -177,7 +316,14 @@ impl Yt {
             .name("downloads".into())
             .spawn(move || download_worker(ctx, wake_rx, ev_tx))
             .expect("download thread");
+        if resume {
+            let _ = yt.wake.send(());
+        }
         yt
+    }
+
+    fn save(&self) {
+        save_jobs(&self.shared.lk().jobs);
     }
 
     fn worker_ctx(&self) -> WorkerCtx {
@@ -244,7 +390,7 @@ impl Yt {
             _ => None,
         };
         if let Some(path) = ready {
-            let art = preview_cover(&item.id);
+            let art = preview_cover(&item);
             let _ = self.ev_tx.send(YtEvent::PreviewReady { item, path, art });
             (self.notify)();
             return;
@@ -261,7 +407,7 @@ impl Yt {
             let is_latest = *latest.lk() == item.id;
             match res {
                 Ok(path) => {
-                    let art = preview_cover(&item.id);
+                    let art = preview_cover(&item);
                     ctx.shared.lk().previews.insert(item.id.clone(), PreviewState::Ready(path.clone()));
                     if is_latest {
                         let _ = ev_tx.send(YtEvent::PreviewReady { item, path, art });
@@ -274,6 +420,47 @@ impl Yt {
                     }
                 }
             }
+            (ctx.notify)();
+        });
+    }
+
+    /// Find songs like the seeds (YouTube's mixes for them), leaving out what you already have.
+    pub fn suggest(&self, seeds: Vec<Seed>, have_ids: std::collections::HashSet<String>, have_keys: std::collections::HashSet<String>) {
+        let from: Vec<String> = {
+            let mut v: Vec<String> = Vec::new();
+            for s in &seeds {
+                if !s.artist.is_empty() && !v.contains(&s.artist) {
+                    v.push(s.artist.clone());
+                }
+            }
+            v
+        };
+        {
+            let mut s = self.shared.lk();
+            if matches!(s.suggest, Suggest::Loading { .. }) {
+                return;
+            }
+            let had = match &s.suggest {
+                Suggest::Ready { items, .. } => items.clone(),
+                _ => Vec::new(),
+            };
+            s.suggest = Suggest::Loading { had, from: from.clone() };
+        }
+        clear_fail();
+        (self.notify)();
+        let ctx = self.worker_ctx();
+        std::thread::spawn(move || {
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_suggest(&ctx, &seeds, &have_ids, &have_keys)))
+                .unwrap_or_else(|_| Err("Something went wrong. Try again.".into()));
+            let next = match res {
+                Ok(items) => {
+                    let at = now_secs();
+                    crate::store::save_json(&suggest_path(), &SuggestCache { items: items.clone(), from: from.clone(), at });
+                    Suggest::Ready { items, from, at }
+                }
+                Err(msg) => Suggest::Failed(msg),
+            };
+            ctx.shared.lk().suggest = next;
             (ctx.notify)();
         });
     }
@@ -305,6 +492,7 @@ impl Yt {
                 });
             }
         }
+        self.save();
         let _ = self.wake.send(());
         (self.notify)();
     }
@@ -320,6 +508,23 @@ impl Yt {
                 s.setup = Setup::Unknown;
             }
         }
+        self.save();
+        let _ = self.wake.send(());
+        (self.notify)();
+    }
+
+    /// Try every failed download of one playlist again.
+    pub fn retry_playlist(&self, pid: u64) {
+        clear_fail();
+        {
+            let mut s = self.shared.lk();
+            for j in s.jobs.iter_mut().filter(|j| j.playlist == Some(pid)) {
+                if matches!(j.status, JobStatus::Failed(_)) {
+                    j.status = JobStatus::Waiting;
+                }
+            }
+        }
+        self.save();
         let _ = self.wake.send(());
         (self.notify)();
     }
@@ -331,6 +536,7 @@ impl Yt {
             }
         }
         self.shared.lk().jobs.retain(|j| j.uid != uid);
+        self.save();
         (self.notify)();
     }
 
@@ -340,6 +546,7 @@ impl Yt {
             .unwrap()
             .jobs
             .retain(|j| !matches!(j.status, JobStatus::Done(_) | JobStatus::Failed(_)));
+        self.save();
         (self.notify)();
     }
 
@@ -654,21 +861,29 @@ fn base_cmd(tools: &Tools) -> Command {
 
 /// Turn yt-dlp's error output into one short, human sentence.
 fn friendly_error(stderr: &str) -> String {
+    friendly_error_for(stderr, "YouTube")
+}
+
+fn friendly_error_for(stderr: &str, site: &str) -> String {
     let low = stderr.to_lowercase();
-    if low.contains("not a bot") || low.contains("http error 429") {
-        "YouTube is limiting downloads right now. Try again in a few minutes.".into()
-    } else if low.contains("private video") || low.contains("video unavailable") || low.contains("has been removed") {
-        "This video isn't available.".into()
+    if low.contains("unsupported url") {
+        "Segno can't open links from this site. Try a link to a song or playlist page.".into()
+    } else if low.contains("drm") {
+        format!("{site} protects this one, so it can't be downloaded.")
+    } else if low.contains("not a bot") || low.contains("http error 429") {
+        format!("{site} is limiting downloads right now. Try again in a few minutes.")
+    } else if low.contains("private video") || low.contains("video unavailable") || low.contains("has been removed") || low.contains("http error 404") {
+        "This one isn't available anymore.".into()
     } else if low.contains("confirm your age") || low.contains("age-restricted") {
-        "This video is age-restricted, so YouTube won't allow the download.".into()
+        format!("This one is age-restricted, so {site} won't allow the download.")
     } else if low.contains("requested format is not available") {
-        "YouTube didn't offer an M4A version of this one.".into()
+        format!("{site} doesn't offer this one in a format Segno can play.")
     } else if low.contains("getaddrinfo")
         || low.contains("unable to download webpage")
         || low.contains("connection")
         || low.contains("timed out")
     {
-        "Couldn't reach YouTube. Check your internet connection.".into()
+        format!("Couldn't reach {site}. Check your internet connection.")
     } else if low.contains("no space left") {
         "Your drive is full. Free some space, then try again.".into()
     } else {
@@ -698,31 +913,66 @@ fn should_update_and_retry(stderr: &str) -> bool {
 // ---------------------------------------------------------------------------------------------
 // Search
 
+/// A pasted link (from any site) rather than words to search YouTube for.
 pub fn looks_like_link(s: &str) -> bool {
     let s = s.trim().to_lowercase();
-    (s.starts_with("http://") || s.starts_with("https://") || s.starts_with("www.") || s.starts_with("youtu"))
-        && (s.contains("youtube.com/") || s.contains("youtu.be/"))
+    if s.is_empty() || s.contains(char::is_whitespace) {
+        return false;
+    }
+    if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("www.") || s.starts_with("spotify:") {
+        return true;
+    }
+    // A bare "site.com/something".
+    match s.split_once('/') {
+        Some((host, _)) => {
+            let parts: Vec<&str> = host.split('.').collect();
+            parts.len() >= 2
+                && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+                && parts.last().map(|t| t.len() >= 2 && t.chars().all(|c| c.is_ascii_alphabetic())).unwrap_or(false)
+        }
+        None => false,
+    }
+}
+
+fn full_url(s: &str) -> String {
+    let s = s.trim();
+    if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("spotify:") {
+        s.to_string()
+    } else {
+        format!("https://{s}")
+    }
+}
+
+fn is_youtube_url(u: &str) -> bool {
+    let u = u.to_lowercase();
+    u.contains("youtube.com/") || u.contains("youtu.be/")
 }
 
 fn run_search(ctx: &WorkerCtx, query: &str) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String> {
-    let tools = ensure_tools(ctx)?;
     let q = query.trim();
+    let link = looks_like_link(q).then(|| full_url(q));
+    if let Some(url) = &link {
+        if crate::spotify::is_spotify(url) {
+            return crate::spotify::resolve(url);
+        }
+    }
+    let tools = ensure_tools(ctx)?;
+    let site = link.as_deref().map(site_from_url).unwrap_or_else(|| "YouTube".into());
     let mut attempt = 0;
     loop {
         let mut cmd = base_cmd(&tools);
         cmd.args(["--flat-playlist", "-J", "--no-warnings"]);
-        if looks_like_link(q) {
-            let mut url = q.to_string();
-            if !url.starts_with("http") {
-                url = format!("https://{url}");
+        match &link {
+            Some(url) => {
+                // A song link that happens to sit in a playlist: take just the song.
+                if is_youtube_url(url) && url.contains("watch?") && url.contains("v=") {
+                    cmd.arg("--no-playlist");
+                }
+                cmd.arg(url);
             }
-            // A song link that happens to sit in a playlist: take just the song.
-            if url.contains("watch?") && url.contains("v=") {
-                cmd.arg("--no-playlist");
+            None => {
+                cmd.arg(format!("ytsearch20:{q}"));
             }
-            cmd.arg(url);
-        } else {
-            cmd.arg(format!("ytsearch20:{q}"));
         }
         let out = cmd
             .stdout(Stdio::piped())
@@ -730,66 +980,276 @@ fn run_search(ctx: &WorkerCtx, query: &str) -> Result<(Vec<YtItem>, Option<Playl
             .output()
             .map_err(|e| format!("The downloader didn't start ({e})."))?;
         if out.status.success() {
-            let v: Value = serde_json::from_slice(&out.stdout).map_err(|_| "YouTube sent something unexpected.".to_string())?;
-            return Ok(parse_results(&v));
+            let v: Value = serde_json::from_slice(&out.stdout).map_err(|_| format!("{site} sent something unexpected."))?;
+            let (items, playlist) = parse_results(&v, link.as_deref().unwrap_or(""));
+            if link.is_some() && items.is_empty() && playlist.is_none() {
+                return Err(format!("Couldn't find any songs at this {site} link."));
+            }
+            return Ok((items, playlist));
         }
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if attempt == 0 && should_update_and_retry(&err) && self_update(ctx, &tools) {
             attempt += 1;
             continue;
         }
-        return Err(friendly_error(&err));
+        return Err(friendly_error_for(&err, &site));
     }
 }
 
-fn item_from(v: &Value, fallback_channel: &str) -> Option<YtItem> {
-    let id = v.get("id")?.as_str()?.to_string();
-    if id.len() != 11 {
-        return None; // channels, playlists, shorts shelves
+// ---------------------------------------------------------------------------------------------
+// Suggestions
+
+/// The first YouTube result for some words.
+fn find_video(tools: &Tools, words: &str) -> Option<String> {
+    let out = base_cmd(tools)
+        .args(["--flat-playlist", "-J", "--no-warnings"])
+        .arg(format!("ytsearch1:{words}"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
+    let (items, _) = parse_results(&v, "");
+    items.into_iter().find(|i| i.is_youtube()).map(|i| i.id)
+}
+
+fn run_suggest(
+    ctx: &WorkerCtx,
+    seeds: &[Seed],
+    have_ids: &std::collections::HashSet<String>,
+    have_keys: &std::collections::HashSet<String>,
+) -> Result<Vec<YtItem>, String> {
+    let tools = ensure_tools(ctx)?;
+    let mut lists: Vec<Vec<YtItem>> = Vec::new();
+    let mut seed_ids = std::collections::HashSet::new();
+    let mut last_err = String::new();
+    for seed in seeds.iter().take(4) {
+        let id = match &seed.id {
+            Some(id) => id.clone(),
+            None => match find_video(&tools, &seed.find) {
+                Some(id) => id,
+                None => continue,
+            },
+        };
+        seed_ids.insert(id.clone());
+        // YouTube's "Mix" for a song: songs that go with it.
+        let url = format!("https://www.youtube.com/watch?v={id}&list=RD{id}");
+        let out = base_cmd(&tools)
+            .args(["--flat-playlist", "-J", "--no-warnings", "--playlist-end", "30"])
+            .arg(&url)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output();
+        match out {
+            Ok(o) if o.status.success() => {
+                if let Ok(v) = serde_json::from_slice::<Value>(&o.stdout) {
+                    let (items, _) = parse_results(&v, &url);
+                    if !items.is_empty() {
+                        lists.push(items);
+                    }
+                }
+            }
+            Ok(o) => last_err = String::from_utf8_lossy(&o.stderr).to_string(),
+            Err(e) => last_err = format!("The downloader didn't start ({e})."),
+        }
     }
-    let title = v.get("title").and_then(Value::as_str).unwrap_or("").to_string();
-    if title.is_empty() || title == "[Private video]" || title == "[Deleted video]" {
+    if lists.is_empty() {
+        return Err(if last_err.is_empty() {
+            "Couldn't find suggestions right now. Try again in a bit.".into()
+        } else {
+            friendly_error(&last_err)
+        });
+    }
+    // Take turns between the mixes so one artist doesn't fill the page.
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut seen_keys = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let longest = lists.iter().map(Vec::len).max().unwrap_or(0);
+    for i in 0..longest {
+        for l in &lists {
+            let Some(it) = l.get(i) else { continue };
+            let (artist, title) = guess_artist_title(it);
+            let key = song_key(&artist, &title);
+            let fits = it.duration == 0.0 || (60.0..=720.0).contains(&it.duration);
+            if fits
+                && !seed_ids.contains(&it.id)
+                && !have_ids.contains(&it.id)
+                && !have_keys.contains(&key)
+                && seen_ids.insert(it.id.clone())
+                && seen_keys.insert(key)
+            {
+                out.push(it.clone());
+            }
+        }
+    }
+    out.truncate(40);
+    if out.is_empty() {
+        return Err("Nothing new to suggest yet. Play a few more songs and try again.".into());
+    }
+    Ok(out)
+}
+
+/// "SoundCloud" from "https://soundcloud.com/…", "Bandcamp" from "artist.bandcamp.com".
+pub fn site_from_url(url: &str) -> String {
+    let host = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+    let host = host.trim_start_matches("www.").trim_start_matches("m.").trim_start_matches("music.");
+    let known = [
+        ("youtube.", "YouTube"),
+        ("youtu.be", "YouTube"),
+        ("soundcloud.", "SoundCloud"),
+        ("bandcamp.", "Bandcamp"),
+        ("spotify.", "Spotify"),
+        ("deezer.", "Deezer"),
+        ("vimeo.", "Vimeo"),
+        ("mixcloud.", "Mixcloud"),
+        ("audiomack.", "Audiomack"),
+        ("tiktok.", "TikTok"),
+        ("instagram.", "Instagram"),
+        ("twitter.", "X"),
+        ("x.com", "X"),
+        ("facebook.", "Facebook"),
+        ("dailymotion.", "Dailymotion"),
+        ("archive.org", "Internet Archive"),
+    ];
+    for (k, name) in known {
+        if host.contains(k) {
+            return name.to_string();
+        }
+    }
+    // Otherwise the domain's main word, capitalized: "jamendo.com" → "Jamendo".
+    let parts: Vec<&str> = host.split('.').collect();
+    let main = if parts.len() >= 2 { parts[parts.len() - 2] } else { host };
+    let mut c = main.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => "this site".into(),
+    }
+}
+
+/// yt-dlp's extractor name to a site name: "SoundcloudSet" → "SoundCloud".
+fn site_from_extractor(ie: &str) -> Option<String> {
+    let low = ie.to_lowercase();
+    let known = [
+        ("youtube", "YouTube"),
+        ("soundcloud", "SoundCloud"),
+        ("bandcamp", "Bandcamp"),
+        ("vimeo", "Vimeo"),
+        ("mixcloud", "Mixcloud"),
+        ("audiomack", "Audiomack"),
+        ("deezer", "Deezer"),
+        ("tiktok", "TikTok"),
+        ("dailymotion", "Dailymotion"),
+    ];
+    known.iter().find(|(k, _)| low.starts_with(k)).map(|(_, n)| n.to_string())
+}
+
+fn str_of(v: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|k| match v.get(*k) {
+        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Some(Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    })
+}
+
+/// The biggest picture in a yt-dlp "thumbnails" list, or its "thumbnail".
+fn best_thumb(v: &Value) -> Option<String> {
+    let list = v.get("thumbnails").and_then(Value::as_array);
+    let best = list.and_then(|l| {
+        l.iter()
+            .filter(|t| t.get("url").and_then(Value::as_str).map(|u| u.starts_with("http")).unwrap_or(false))
+            .max_by_key(|t| t.get("width").and_then(Value::as_u64).unwrap_or(0) * t.get("height").and_then(Value::as_u64).unwrap_or(1))
+            .and_then(|t| t.get("url").and_then(Value::as_str))
+            .map(str::to_string)
+    });
+    best.or_else(|| str_of(v, &["thumbnail"]).filter(|u| u.starts_with("http")))
+}
+
+/// A readable title from a link's last part: ".../artist/some-song-name" → "Some Song Name".
+fn title_from_url(url: &str) -> String {
+    let last = url.trim_end_matches('/').rsplit('/').next().unwrap_or("").split('?').next().unwrap_or("");
+    last.split(['-', '_'])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn item_from(v: &Value, fallback_channel: &str, root_ie: &str, link: &str) -> Option<YtItem> {
+    let ie = str_of(v, &["ie_key", "extractor_key"]).unwrap_or_else(|| root_ie.to_string());
+    let page = str_of(v, &["webpage_url", "url"]).filter(|u| u.starts_with("http")).unwrap_or_default();
+    let youtube = ie.to_lowercase().starts_with("youtube") || (ie.is_empty() && is_youtube_url(&page)) || (page.is_empty() && is_youtube_url(link));
+    let title = str_of(v, &["track", "title"]).unwrap_or_default();
+    if title == "[Private video]" || title == "[Deleted video]" {
         return None;
     }
-    let channel = ["channel", "uploader", "creator"]
-        .iter()
-        .find_map(|k| v.get(*k).and_then(Value::as_str))
-        .unwrap_or(fallback_channel)
-        .to_string();
-    let duration = v.get("duration").and_then(Value::as_f64).unwrap_or(0.0) as f32;
     let live = v.get("live_status").and_then(Value::as_str).map(|s| s == "is_live").unwrap_or(false);
     if live {
         return None;
     }
+    let channel = str_of(v, &["artist", "channel", "uploader", "creator"]).unwrap_or_else(|| fallback_channel.to_string());
+    let duration = v.get("duration").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+    if youtube {
+        let id = str_of(v, &["id"])?;
+        if id.len() != 11 || title.is_empty() {
+            return None; // channels, playlists, shorts shelves
+        }
+        return Some(YtItem { id, title, channel, duration, ..Default::default() });
+    }
+    // Any other site: keep its own link, picture and name.
+    let page = if page.is_empty() { link.to_string() } else { page };
+    if page.is_empty() {
+        return None;
+    }
+    let raw_id = str_of(v, &["id"]).unwrap_or_else(|| format!("{:x}", crate::store::hash_bytes(page.as_bytes())));
+    let site = site_from_extractor(&ie).unwrap_or_else(|| site_from_url(&page));
+    let slug: String = site.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let title = if title.is_empty() { title_from_url(&page) } else { title };
+    if title.is_empty() {
+        return None;
+    }
     Some(YtItem {
-        id,
+        id: format!("{slug}:{raw_id}"),
         title,
         channel,
         duration,
+        url: page,
+        thumb: best_thumb(v).unwrap_or_default(),
+        site,
+        ..Default::default()
     })
 }
 
-fn parse_results(v: &Value) -> (Vec<YtItem>, Option<PlaylistInfo>) {
+fn parse_results(v: &Value, link: &str) -> (Vec<YtItem>, Option<PlaylistInfo>) {
+    let root_ie = str_of(v, &["extractor_key", "ie_key"]).unwrap_or_default();
     if let Some(entries) = v.get("entries").and_then(Value::as_array) {
-        let channel = v
-            .get("channel")
-            .or_else(|| v.get("uploader"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let items: Vec<YtItem> = entries.iter().filter_map(|e| item_from(e, &channel)).collect();
-        let is_search = v
-            .get("extractor_key")
-            .and_then(Value::as_str)
-            .map(|s| s.contains("Search"))
-            .unwrap_or(false);
+        let channel = str_of(v, &["channel", "uploader", "artist"]).unwrap_or_default();
+        // Child entries of a playlist inherit the playlist's site.
+        let child_ie = root_ie.trim_end_matches("Tab").trim_end_matches("Set").trim_end_matches("Album").trim_end_matches("Playlist").to_string();
+        let items: Vec<YtItem> = entries.iter().filter_map(|e| item_from(e, &channel, &child_ie, "")).collect();
+        let is_search = root_ie.contains("Search");
+        let site = site_from_extractor(&root_ie).unwrap_or_else(|| site_from_url(link));
         let playlist = (!is_search).then(|| PlaylistInfo {
-            title: v.get("title").and_then(Value::as_str).unwrap_or("YouTube playlist").to_string(),
+            title: str_of(v, &["title"]).unwrap_or_else(|| format!("{site} playlist")),
             channel,
+            url: link.to_string(),
+            cover: best_thumb(v).unwrap_or_default(),
+            site,
         });
         (items, playlist)
     } else {
-        (item_from(v, "").into_iter().collect(), None)
+        (item_from(v, "", &root_ie, link).into_iter().collect(), None)
     }
 }
 
@@ -825,6 +1285,7 @@ fn download_worker(ctx: WorkerCtx, wake: Receiver<()>, events: Sender<YtEvent>) 
                 let _ = events.send(YtEvent::Downloaded {
                     path: path.clone(),
                     playlist: job.playlist,
+                    key: job.item.id.clone(),
                 });
                 JobStatus::Done(path)
             }
@@ -835,6 +1296,7 @@ fn download_worker(ctx: WorkerCtx, wake: Receiver<()>, events: Sender<YtEvent>) 
             if let Some(j) = s.jobs.iter_mut().find(|j| j.uid == job.uid) {
                 j.status = status;
             }
+            save_jobs(&s.jobs);
         }
         (ctx.notify)();
     }
@@ -896,31 +1358,35 @@ fn run_job(ctx: &WorkerCtx, job: &Job) -> Result<PathBuf, String> {
                     );
                     continue;
                 }
-                cleanup_tmp(&tmp, &job.item.id);
-                return Err(friendly_error(&stderr));
+                cleanup_tmp(&tmp, &job.item.stem());
+                return Err(friendly_error_for(&stderr, job.item.source()));
             }
         }
     };
     set_status(ctx, job.uid, JobStatus::Saving);
     (ctx.notify)();
 
+    let stem = job.item.stem();
     let audio = meta
         .get("filepath")
         .and_then(Value::as_str)
         .map(PathBuf::from)
         .filter(|p| p.is_file())
-        .or_else(|| {
-            let p = tmp.join(format!("{}.m4a", job.item.id));
-            p.is_file().then_some(p)
-        })
+        .or_else(|| find_audio(&tmp, &stem))
         .ok_or("The download finished but the file is missing.")?;
+    let ext = audio
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .filter(|e| crate::library::AUDIO_EXT.contains(&e.as_str()))
+        .ok_or_else(|| format!("{} only offered this one in a format Segno can't play.", job.item.source()))?;
 
     let tags = clean_meta(&meta, &job.item);
     let thumb = ["jpg", "webp", "png", "jpeg"]
         .iter()
-        .map(|e| tmp.join(format!("{}.{e}", job.item.id)))
+        .map(|e| tmp.join(format!("{stem}.{e}")))
         .find(|p| p.is_file());
-    let cover = thumb.as_ref().and_then(|p| cover_jpeg(p));
+    // Songs from Spotify use the album cover from Spotify rather than the video's thumbnail.
+    let cover = item_cover(&job.item).or_else(|| thumb.as_ref().and_then(|p| cover_jpeg(p)));
     write_tags(&audio, &tags, &job.item.id, cover);
 
     let name = sanitize(&if tags.artist.is_empty() {
@@ -928,10 +1394,10 @@ fn run_job(ctx: &WorkerCtx, job: &Job) -> Result<PathBuf, String> {
     } else {
         format!("{} - {}", tags.artist, tags.title)
     });
-    let mut dest = music.join(format!("{name}.m4a"));
+    let mut dest = music.join(format!("{name}.{ext}"));
     let mut n = 2;
     while dest.exists() {
-        dest = music.join(format!("{name} ({n}).m4a"));
+        dest = music.join(format!("{name} ({n}).{ext}"));
         n += 1;
     }
     std::fs::rename(&audio, &dest)
@@ -940,16 +1406,40 @@ fn run_job(ctx: &WorkerCtx, job: &Job) -> Result<PathBuf, String> {
     if let Some(t) = thumb {
         let _ = std::fs::remove_file(t);
     }
-    cleanup_tmp(&tmp, &job.item.id);
+    cleanup_tmp(&tmp, &stem);
     Ok(dest)
+}
+
+/// The downloaded audio file for a stem, whatever its extension.
+fn find_audio(dir: &Path, stem: &str) -> Option<PathBuf> {
+    crate::library::AUDIO_EXT
+        .iter()
+        .map(|e| dir.join(format!("{stem}.{e}")))
+        .find(|p| p.is_file())
+}
+
+/// For Spotify songs: the album cover Spotify shows, as a square JPEG.
+fn item_cover(item: &YtItem) -> Option<Vec<u8>> {
+    if item.find.is_empty() || item.thumb.is_empty() {
+        return None;
+    }
+    let bytes = crate::net::get_bytes(&item.thumb, 8 << 20).ok()?;
+    let img = image::load_from_memory(&bytes).ok()?;
+    let sq = crate::art::square_crop(&img);
+    let mut buf = Vec::new();
+    let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 90);
+    sq.to_rgb8().write_with_encoder(enc).ok()?;
+    Some(buf)
 }
 
 fn run_preview(ctx: &WorkerCtx, item: &YtItem, slot: &Mutex<Option<(u64, Child)>>) -> Result<PathBuf, String> {
     let dir = preview_dir();
-    let audio = dir.join(format!("{}.m4a", item.id));
-    let meta_path = dir.join(format!("{}.json", item.id));
-    if audio.is_file() && meta_path.is_file() {
-        return Ok(audio);
+    let stem = item.stem();
+    let meta_path = dir.join(format!("{stem}.json"));
+    if let Some(audio) = find_audio(&dir, &stem) {
+        if meta_path.is_file() {
+            return Ok(audio);
+        }
     }
     let tools = ensure_tools(ctx)?;
     let id = item.id.clone();
@@ -975,7 +1465,7 @@ fn run_preview(ctx: &WorkerCtx, item: &YtItem, slot: &Mutex<Option<(u64, Child)>
                     attempt += 1;
                     continue;
                 }
-                return Err(friendly_error(&stderr));
+                return Err(friendly_error_for(&stderr, item.source()));
             }
         }
     };
@@ -984,40 +1474,43 @@ fn run_preview(ctx: &WorkerCtx, item: &YtItem, slot: &Mutex<Option<(u64, Child)>
         .and_then(Value::as_str)
         .map(PathBuf::from)
         .filter(|p| p.is_file())
-        .unwrap_or(audio);
-    if !path.is_file() {
-        return Err("The song didn't arrive. Try again.".into());
-    }
+        .or_else(|| find_audio(&dir, &stem))
+        .ok_or("The song didn't arrive. Try again.")?;
     let _ = std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap_or_default());
     Ok(path)
 }
 
-/// Cover art for a previewed song, from the thumbnail yt-dlp saved next to it.
-fn preview_cover(id: &str) -> Option<(u64, [u8; 3])> {
+/// Cover art for a previewed song: the Spotify cover, or the thumbnail yt-dlp saved next to it.
+fn preview_cover(item: &YtItem) -> Option<(u64, [u8; 3])> {
+    if let Some(jpg) = item_cover(item) {
+        return crate::art::store_cover(&jpg, None);
+    }
     let dir = preview_dir();
+    let stem = item.stem();
     let thumb = ["jpg", "webp", "png", "jpeg"]
         .iter()
-        .map(|e| dir.join(format!("{id}.{e}")))
+        .map(|e| dir.join(format!("{stem}.{e}")))
         .find(|p| p.is_file())?;
     let bytes = std::fs::read(thumb).ok()?;
     crate::art::store_cover(&bytes, None)
 }
 
-/// If the song was already played from YouTube, copy that file instead of downloading again.
+/// If the song was already played before downloading, copy that file instead of downloading again.
 fn take_from_preview(item: &YtItem, tmp: &Path) -> Option<Value> {
     let dir = preview_dir();
-    let audio = dir.join(format!("{}.m4a", item.id));
-    let meta_path = dir.join(format!("{}.json", item.id));
-    if !audio.is_file() || !meta_path.is_file() {
+    let stem = item.stem();
+    let audio = find_audio(&dir, &stem)?;
+    let meta_path = dir.join(format!("{stem}.json"));
+    if !meta_path.is_file() {
         return None;
     }
     let mut meta: Value = serde_json::from_slice(&std::fs::read(&meta_path).ok()?).ok()?;
-    let dest = tmp.join(format!("{}.m4a", item.id));
+    let dest = tmp.join(audio.file_name()?);
     std::fs::copy(&audio, &dest).ok()?;
     for ext in ["jpg", "webp", "png", "jpeg"] {
-        let t = dir.join(format!("{}.{ext}", item.id));
+        let t = dir.join(format!("{stem}.{ext}"));
         if t.is_file() {
-            let _ = std::fs::copy(&t, tmp.join(format!("{}.{ext}", item.id)));
+            let _ = std::fs::copy(&t, tmp.join(format!("{stem}.{ext}")));
             break;
         }
     }
@@ -1027,10 +1520,10 @@ fn take_from_preview(item: &YtItem, tmp: &Path) -> Option<Value> {
     Some(meta)
 }
 
-fn cleanup_tmp(tmp: &Path, id: &str) {
+fn cleanup_tmp(tmp: &Path, stem: &str) {
     if let Ok(rd) = std::fs::read_dir(tmp) {
         for e in rd.flatten() {
-            if e.file_name().to_string_lossy().starts_with(id) {
+            if e.file_name().to_string_lossy().starts_with(stem) {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -1058,11 +1551,33 @@ fn run_ytdlp(
     slot: &Mutex<Option<(u64, Child)>>,
     on_progress: &mut dyn FnMut(f32, String),
 ) -> Result<Value, String> {
+    let first = run_ytdlp_once(tools, item, uid, tmp, slot, on_progress, true);
+    // A Spotify song with no YouTube result of about the right length: take the best match anyway.
+    if !item.find.is_empty() && item.duration > 0.0 && matches!(&first, Err(e) if e == NO_MATCH) {
+        return run_ytdlp_once(tools, item, uid, tmp, slot, on_progress, false);
+    }
+    first
+}
+
+const NO_MATCH: &str = "Couldn't find this song on YouTube.";
+
+fn run_ytdlp_once(
+    tools: &Tools,
+    item: &YtItem,
+    uid: u64,
+    tmp: &Path,
+    slot: &Mutex<Option<(u64, Child)>>,
+    on_progress: &mut dyn FnMut(f32, String),
+    match_length: bool,
+) -> Result<Value, String> {
     let mut cmd = base_cmd(tools);
-    let out_tpl = tmp.join("%(id)s.%(ext)s");
+    // Our own file name (the item's stem), so any site and any search lands where we look.
+    let out_tpl = tmp.join(format!("{}.%(ext)s", item.stem()));
     cmd.args([
         "-f",
-        "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
+        // Formats Segno can play without converting: M4A/AAC first (what YouTube offers),
+        // then MP3, FLAC and Ogg Vorbis for other sites.
+        "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[ext=mp3]/bestaudio[acodec=mp3]/bestaudio[ext=flac]/bestaudio[acodec=flac]/bestaudio[acodec=vorbis]/best[ext=mp3]/best[ext=m4a]",
         "--no-playlist",
         "--no-mtime",
         "--force-overwrites",
@@ -1077,6 +1592,16 @@ fn run_ytdlp(
     ]);
     cmd.arg(&out_tpl);
     cmd.arg("-o").arg(format!("thumbnail:{}", out_tpl.display()));
+    if !item.find.is_empty() {
+        // A Spotify song found on YouTube: take the first result whose length is close to
+        // the real song's, so a 10-minute live version or a 30-second clip doesn't win.
+        cmd.args(["--max-downloads", "1"]);
+        if match_length && item.duration > 0.0 {
+            let lo = (item.duration * 0.85 - 5.0).max(0.0) as u32;
+            let hi = (item.duration * 1.15 + 5.0) as u32;
+            cmd.arg("--match-filter").arg(format!("duration >= {lo} & duration <= {hi}"));
+        }
+    }
     cmd.arg(item.url());
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("The downloader didn't start ({e})."))?;
@@ -1119,9 +1644,13 @@ fn run_ytdlp(
     #[cfg(not(unix))]
     let killed = false;
     let err = err_thread.join().unwrap_or_default();
+    // 101: stopped on purpose after the first match (--max-downloads).
+    let ok = |s: &std::process::ExitStatus| s.success() || s.code() == Some(101);
     match (status, meta) {
-        (Some(s), Some(m)) if s.success() => Ok(m),
-        (Some(s), None) if s.success() => Ok(Value::Null),
+        (Some(s), Some(m)) if ok(&s) => Ok(m),
+        (Some(s), None) if ok(&s) && find_audio(tmp, &item.stem()).is_some() => Ok(Value::Null),
+        (Some(s), None) if ok(&s) && !item.find.is_empty() => Err(NO_MATCH.into()),
+        (Some(s), None) if ok(&s) => Ok(Value::Null),
         _ if killed => Err("killed".into()),
         _ => Err(if err.trim().is_empty() { "The download stopped.".into() } else { err }),
     }
@@ -1198,6 +1727,15 @@ fn clean_channel(ch: &str) -> String {
 
 pub fn clean_meta(meta: &Value, item: &YtItem) -> Tags {
     let s = |k: &str| meta.get(k).and_then(Value::as_str).map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
+    // Found from a Spotify link: Spotify's own title and artist are the clean ones.
+    if !item.find.is_empty() {
+        return Tags {
+            title: item.title.clone(),
+            artist: item.channel.clone(),
+            album: item.album.clone(),
+            year: 0,
+        };
+    }
     let artists = meta
         .get("artists")
         .and_then(Value::as_array)
@@ -1279,7 +1817,12 @@ fn write_tags(path: &Path, t: &Tags, yt_id: &str, cover: Option<Vec<u8>>) {
             ..Default::default()
         });
     }
-    tag.set_comment(format!("youtube:{yt_id}"));
+    // Which song this is, so search results show it's already in the library.
+    if yt_id.len() == 11 && !yt_id.contains(':') {
+        tag.set_comment(format!("youtube:{yt_id}"));
+    } else {
+        tag.set_comment(format!("segno:{yt_id}"));
+    }
     if let Some(bytes) = cover {
         tag.remove_picture_type(PictureType::CoverFront);
         tag.push_picture(
@@ -1317,6 +1860,21 @@ pub fn sanitize(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suggestion_keys() {
+        let it = YtItem {
+            id: "abcdefghijk".into(),
+            title: "Nova Lane - Glass Houses (Official Video)".into(),
+            channel: "NovaLaneVEVO".into(),
+            ..Default::default()
+        };
+        let (a, t) = guess_artist_title(&it);
+        assert_eq!((a.as_str(), t.as_str()), ("Nova Lane", "Glass Houses"));
+        assert_eq!(song_key(&a, &t), song_key("nova lane", "Glass Houses!"));
+        let topic = YtItem { title: "Glass Houses".into(), channel: "Nova Lane - Topic".into(), ..it };
+        assert_eq!(guess_artist_title(&topic).0, "Nova Lane");
+    }
     #[test]
     fn junk() {
         assert_eq!(remove_junk("Blinding Lights (Official Video)"), "Blinding Lights");
@@ -1332,6 +1890,7 @@ mod tests {
             title: "The Weeknd - Blinding Lights (Official Video)".into(),
             channel: "TheWeekndVEVO".into(),
             duration: 200.0,
+            ..Default::default()
         };
         let m = serde_json::json!({"title": item.title, "channel": "TheWeekndVEVO"});
         let t = clean_meta(&m, &item);
@@ -1350,5 +1909,51 @@ mod tests {
         assert!(looks_like_link("https://youtu.be/dQw4w9WgXcQ"));
         assert!(looks_like_link("https://www.youtube.com/playlist?list=PL123"));
         assert!(!looks_like_link("lofi beats"));
+        assert!(looks_like_link("https://soundcloud.com/artist/song"));
+        assert!(looks_like_link("soundcloud.com/artist/song"));
+        assert!(looks_like_link("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"));
+        assert!(!looks_like_link("Mr. Brightside"));
+        assert!(!looks_like_link("ac/dc"));
+        assert_eq!(site_from_url("https://soundcloud.com/x/y"), "SoundCloud");
+        assert_eq!(site_from_url("https://someartist.bandcamp.com/track/x"), "Bandcamp");
+        assert_eq!(site_from_url("https://www.jamendo.com/track/1"), "Jamendo");
+        assert_eq!(title_from_url("https://soundcloud.com/artist/my-cool-song?si=1"), "My Cool Song");
+    }
+
+    #[test]
+    fn other_sites() {
+        // A SoundCloud set, flat: entries carry their own links.
+        let v = serde_json::json!({
+            "_type": "playlist", "extractor_key": "SoundcloudSet", "title": "Summer", "uploader": "DJ X",
+            "thumbnails": [{"url": "https://i1.sndcdn.com/a-t500x500.jpg", "width": 500, "height": 500}],
+            "entries": [
+                {"ie_key": "Soundcloud", "id": "111", "url": "https://soundcloud.com/djx/first-track", "title": "First Track", "duration": 200.5},
+                {"ie_key": "Soundcloud", "id": "222", "url": "https://soundcloud.com/djx/second-track"}
+            ]
+        });
+        let (items, pl) = parse_results(&v, "https://soundcloud.com/djx/sets/summer");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, "soundcloud:111");
+        assert_eq!(items[0].site, "SoundCloud");
+        assert_eq!(items[1].title, "Second Track");
+        assert_eq!(items[0].url(), "https://soundcloud.com/djx/first-track");
+        let pl = pl.unwrap();
+        assert_eq!(pl.title, "Summer");
+        assert_eq!(pl.cover, "https://i1.sndcdn.com/a-t500x500.jpg");
+        // A single page on some other site.
+        let v = serde_json::json!({"extractor_key": "Bandcamp", "id": 42, "title": "Song", "artist": "Band",
+            "webpage_url": "https://band.bandcamp.com/track/song", "thumbnail": "https://f4.bcbits.com/img/a1.jpg"});
+        let (items, pl) = parse_results(&v, "https://band.bandcamp.com/track/song");
+        assert!(pl.is_none());
+        assert_eq!(items[0].id, "bandcamp:42");
+        assert_eq!(items[0].channel, "Band");
+        assert_eq!(items[0].stem(), "bandcamp_42");
+        // YouTube results keep plain ids.
+        let v = serde_json::json!({"_type": "playlist", "extractor_key": "YoutubeSearch", "entries": [
+            {"ie_key": "Youtube", "id": "dQw4w9WgXcQ", "title": "Song", "channel": "Ch", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]});
+        let (items, pl) = parse_results(&v, "");
+        assert!(pl.is_none());
+        assert_eq!(items[0].id, "dQw4w9WgXcQ");
+        assert!(items[0].url.is_empty());
     }
 }

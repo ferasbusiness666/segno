@@ -15,6 +15,17 @@ pub fn hover_press(ui: &Ui, resp: &Response) -> (f32, f32) {
     (h, p)
 }
 
+/// Like `hover_press`, but the pointer counts anywhere over `rect`, buttons on top included.
+/// Use it for cards whose buttons only show on hover: pointing at the button must not count
+/// as leaving the card, or the button hides, the card is hovered again, and it flickers.
+pub fn group_hover_press(ui: &Ui, resp: &Response, rect: Rect) -> (f32, f32) {
+    let ctx = ui.ctx();
+    let over = ui.rect_contains_pointer(rect) && !egui::DragAndDrop::has_any_payload(ctx);
+    let h = ctx.animate_bool_with_time(resp.id.with("h"), over, T_FAST);
+    let p = ctx.animate_bool_with_time(resp.id.with("p"), resp.is_pointer_button_down_on(), 0.07);
+    (h, p)
+}
+
 pub fn scale_rect(r: Rect, s: f32) -> Rect {
     Rect::from_center_size(r.center(), r.size() * s)
 }
@@ -108,11 +119,7 @@ pub enum Transport {
     Next,
 }
 
-/// Solid skip buttons in the player bar.
-pub fn transport_button(ui: &mut Ui, size: f32, which: Transport, tip: &str) -> Response {
-    transport_button_c(ui, size, which, tip, TEXT_2)
-}
-
+/// Solid skip buttons (player bar and full screen).
 pub fn transport_button_c(ui: &mut Ui, size: f32, which: Transport, tip: &str, base: Color32) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
     let (h, pr) = hover_press(ui, &resp);
@@ -479,4 +486,103 @@ pub fn search_box(ui: &mut Ui, value: &mut String, hint: &str, id: Id, width: f3
         }
     }
     out
+}
+
+/// A picture cut to a circle and turned by `angle` (radians). Used for the record's label.
+pub fn art_disc(p: &Painter, center: Pos2, r: f32, tex: TextureId, angle: f32, tint: Color32) {
+    let n = 72;
+    let mut mesh = egui::Mesh::with_texture(tex);
+    mesh.colored_vertex(center, tint);
+    mesh.vertices[0].uv = pos2(0.5, 0.5);
+    for i in 0..=n {
+        let a = i as f32 / n as f32 * std::f32::consts::TAU;
+        let pos = center + vec2(a.cos(), a.sin()) * r;
+        // The picture turns with the record: sample it at the angle minus the rotation.
+        let ua = a - angle;
+        let uv = pos2(0.5 + 0.5 * ua.cos(), 0.5 + 0.5 * ua.sin());
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color: tint });
+    }
+    for i in 1..=n as u32 {
+        mesh.add_triangle(0, i, i + 1);
+    }
+    p.add(Shape::mesh(mesh));
+}
+
+/// A vinyl record: black disc, fine grooves, a light sheen that stays put while the record
+/// turns, and the cover as the label in the middle.
+pub fn vinyl(p: &Painter, center: Pos2, r: f32, label: Option<TextureId>, label_color: Color32, angle: f32) {
+    // Disc and its edge.
+    p.circle_filled(center + vec2(0.0, r * 0.03), r * 1.01, Color32::from_black_alpha(90));
+    p.circle_filled(center, r, Color32::from_rgb(0x0C, 0x0C, 0x0E));
+    // Grooves: thin rings, slightly uneven like the real thing.
+    let rings = 26;
+    for i in 0..rings {
+        let t = i as f32 / rings as f32;
+        let rr = r * (0.40 + 0.57 * t);
+        let a = if i % 3 == 0 { 0.07 } else { 0.035 };
+        p.circle_stroke(center, rr, Stroke::new(1.0, Color32::from_white_alpha((a * 255.0) as u8)));
+    }
+    // The gap between tracks.
+    p.circle_stroke(center, r * 0.72, Stroke::new(2.0, Color32::from_rgb(0x07, 0x07, 0x08)));
+    // Sheen: two soft highlights across from each other, fixed in place.
+    let n = 120;
+    let mut mesh = egui::Mesh::default();
+    let (inner, outer) = (r * 0.36, r * 0.995);
+    for i in 0..=n {
+        let a = i as f32 / n as f32 * std::f32::consts::TAU;
+        let d = (2.0 * (a - (-0.8))).cos().max(0.0).powf(8.0);
+        let col = Color32::from_white_alpha((d * 34.0) as u8);
+        let dir = vec2(a.cos(), a.sin());
+        mesh.colored_vertex(center + dir * inner, Color32::from_white_alpha((d * 8.0) as u8));
+        mesh.colored_vertex(center + dir * outer, col);
+    }
+    for i in 0..n as u32 {
+        let k = i * 2;
+        mesh.add_triangle(k, k + 1, k + 2);
+        mesh.add_triangle(k + 1, k + 3, k + 2);
+    }
+    p.add(Shape::mesh(mesh));
+    p.circle_stroke(center, r, Stroke::new(1.0, Color32::from_white_alpha(18)));
+    // Label.
+    let lr = r * 0.34;
+    match label {
+        Some(t) => art_disc(p, center, lr, t, angle, Color32::WHITE),
+        None => {
+            p.circle_filled(center, lr, label_color);
+            let mark = center + vec2(angle.cos(), angle.sin()) * lr * 0.6;
+            p.circle_filled(mark, lr * 0.08, Color32::from_white_alpha(120));
+        }
+    }
+    p.circle_stroke(center, lr, Stroke::new(1.0, Color32::from_black_alpha(80)));
+    // Spindle hole.
+    p.circle_filled(center, r * 0.022, Color32::from_rgb(0x0C, 0x0C, 0x0E));
+    p.circle_stroke(center, r * 0.022, Stroke::new(1.0, Color32::from_white_alpha(40)));
+}
+
+/// A square picture of side `side`, turned by `angle` around `center`.
+pub fn rotated_image(p: &Painter, center: Pos2, side: f32, tex: TextureId, angle: f32, tint: Color32) {
+    let (s, c) = angle.sin_cos();
+    let h = side / 2.0;
+    let rot = |x: f32, y: f32| center + vec2(x * c - y * s, x * s + y * c);
+    let mut mesh = egui::Mesh::with_texture(tex);
+    for (x, y, u, v) in [(-h, -h, 0.0, 0.0), (h, -h, 1.0, 0.0), (h, h, 1.0, 1.0), (-h, h, 0.0, 1.0)] {
+        mesh.vertices.push(egui::epaint::Vertex { pos: rot(x, y), uv: pos2(u, v), color: tint });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    p.add(Shape::mesh(mesh));
+}
+
+/// A wide thumbnail cropped to the square in its middle (video covers on suggestion cards).
+pub fn thumb_square(p: &Painter, rect: Rect, tex: Option<TextureId>, radius: f32) {
+    match tex {
+        Some(t) => {
+            let uv = Rect::from_min_max(pos2(0.21875, 0.0), pos2(0.78125, 1.0));
+            p.add(egui::epaint::RectShape::filled(rect, radius, Color32::WHITE).with_texture(t, uv));
+        }
+        None => {
+            p.rect_filled(rect, radius, RAISED_2);
+            icons::glyph(p, rect.center(), icons::MUSIC, rect.width() * 0.22, TEXT_3);
+        }
+    }
 }

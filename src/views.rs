@@ -113,7 +113,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
-const MENU_W: f32 = 236.0;
+pub(crate) const MENU_W: f32 = 236.0;
 
 pub fn menu_item(ui: &mut Ui, icon: &str, label: &str) -> Response {
     let wdt = MENU_W;
@@ -141,7 +141,7 @@ fn menu_item_danger(ui: &mut Ui, icon: &str, label: &str) -> Response {
     resp
 }
 
-fn menu_sep(ui: &mut Ui) {
+pub(crate) fn menu_sep(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(MENU_W, 9.0), Sense::hover());
     ui.painter().line_segment([pos2(r.left() + 6.0, r.center().y), pos2(r.right() - 6.0, r.center().y)], Stroke::new(1.0, HAIRLINE));
 }
@@ -229,13 +229,11 @@ impl App {
         let color = match &self.route {
             Route::Album(k) => self.lib.album(*k).map(|a| a.color),
             Route::Artist(k) => self.lib.artist(*k).map(|a| a.color),
-            Route::Playlist(pid) => Some(
-                self.playlist(*pid)
-                    .and_then(|p| p.tracks.iter().find_map(|path| self.lib.by_path(path).and_then(|t| t.color))),
-            ),
+            Route::Playlist(pid) => Some(self.playlist_art(*pid).1),
             Route::Loved => return Some(Color32::from_rgb(0x5A, 0x1E, 0x33)),
             Route::NowPlaying => Some(self.now_info().and_then(|t| t.color)),
             Route::Songs | Route::Albums | Route::Artists => return Some(Color32::from_rgb(0x24, 0x22, 0x2E)),
+            Route::ForYou => return Some(Color32::from_rgb(0x2C, 0x1F, 0x4A)),
             _ => return None,
         };
         Some(theme::wash_from_art(color.flatten()))
@@ -287,6 +285,7 @@ impl App {
             Route::Loved => self.playlist_page(&mut child, None),
             Route::Search => self.search_page(&mut child),
             Route::Downloads => self.downloads_page(&mut child),
+            Route::ForYou => self.for_you_page(&mut child),
             Route::Settings => self.settings_page(&mut child),
             Route::NowPlaying => self.now_playing_page(&mut child),
         };
@@ -340,7 +339,7 @@ impl App {
     }
 
     /// A long list with a header, drawn lazily: only the rows on screen are built each frame.
-    fn list_page(
+    pub(crate) fn list_page(
         &mut self,
         ui: &mut Ui,
         salt: impl egui::AsIdSalt,
@@ -599,10 +598,6 @@ impl App {
             }
         }
         // A grip on hover in lists you can reorder, so it's clear rows can be dragged.
-        if (mode.reorder || mode.playlist.is_some()) && hv > 0.01 {
-            // Inside the row's left padding, clear of the play button.
-            icons::glyph(&p, pos2(rect.left() + 7.0, rect.center().y), icons::GRIP, 12.0, with_alpha(TEXT_3, hv));
-        }
 
         let pl = mode.playlist.zip(pl_index);
         resp.context_menu(|ui| self.song_menu(ui, id, pl));
@@ -755,7 +750,7 @@ impl App {
     // -----------------------------------------------------------------------------------------
     // Albums & artists
 
-    fn grid_metrics(width: f32, min_card: f32) -> (usize, f32) {
+    pub(crate) fn grid_metrics(width: f32, min_card: f32) -> (usize, f32) {
         let avail = width - 2.0 * PAD_X;
         let gap = S5;
         let cols = (((avail + gap) / (min_card + gap)).floor() as usize).max(2);
@@ -849,7 +844,7 @@ impl App {
     #[allow(clippy::too_many_arguments)]
     fn card(&mut self, ui: &mut Ui, rect: Rect, art_size: f32, id: Id, art: Option<u64>, title: &str, sub: &str, round: bool, route: Route) {
         let resp = ui.interact(rect, id, Sense::click());
-        let (h, pr) = w::hover_press(ui, &resp);
+        let (h, pr) = w::group_hover_press(ui, &resp, rect);
         let p = ui.painter().clone();
         let surface = rect.expand(S2);
         w::hover_surface(&p, surface, h);
@@ -914,6 +909,19 @@ impl App {
             let tex = self.art.cover(art, ArtSize::L);
             w::art(&p, ar, tex, radius, Color32::WHITE);
         }
+        // Playlists: click the picture to choose your own.
+        if let Some(pid) = playlist {
+            let resp = ui.interact(ar, Id::new(("cover", pid)), Sense::click());
+            let h = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered(), T_FAST);
+            if h > 0.0 {
+                p.rect_filled(ar, radius, with_alpha(Color32::BLACK, 0.55 * h));
+                icons::glyph(&p, ar.center() - vec2(0.0, 12.0), icons::IMAGE, 30.0, with_alpha(TEXT, h));
+                w::text(&p, ar.center() + vec2(0.0, 22.0), Align2::CENTER_TOP, "Choose picture", body_strong(), with_alpha(TEXT, h), size);
+            }
+            if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                self.actions.push(Action::PickPlaylistCover(pid));
+            }
+        }
         let tx = ar.right() + S6;
         let tw = r.right() - PAD_X - tx;
         w::text(&p, pos2(tx, ar.top() + size * 0.42), Align2::LEFT_CENTER, kind, small_strong(), TEXT, tw);
@@ -967,11 +975,26 @@ impl App {
             self.play_buttons(&mut bu, ids);
         }
         if let Some(pid) = playlist {
+            let add = w::icon_button(&mut bu, 40.0, icons::PLUS, false, "Add songs");
+            if add.clicked() {
+                self.add_query.clear();
+                self.add_focus = true;
+            }
+            let have: std::collections::HashSet<u64> = ids.iter().copied().collect();
+            self.add_songs_popup(&add, crate::queue::AddTo::Playlist(pid), &have);
             let more = w::icon_button(&mut bu, 40.0, icons::ELLIPSIS, false, "More");
             egui::Popup::menu(&more).show(|ui| {
                 ui.set_max_width(MENU_W);
                 if menu_item(ui, icons::PENCIL, "Rename").clicked() {
                     self.actions.push(Action::StartRename(pid));
+                    ui.close();
+                }
+                if menu_item(ui, icons::IMAGE, "Choose picture…").clicked() {
+                    self.actions.push(Action::PickPlaylistCover(pid));
+                    ui.close();
+                }
+                if art.is_some() && menu_item(ui, icons::X, "Remove picture").clicked() {
+                    self.actions.push(Action::RemovePlaylistCover(pid));
                     ui.close();
                 }
                 if !ids.is_empty() && menu_item(ui, icons::LIST_END, "Add all to queue").clicked() {
@@ -1141,8 +1164,25 @@ impl App {
         };
         let ids: Arc<Vec<u64>> = Arc::new(entries.iter().map(|e| e.1).collect());
         let pl_index: Vec<usize> = entries.iter().map(|e| e.0).collect();
-        let meta = theme::songs_and_length(ids.len(), self.lib.total_duration(&ids));
-        let art = None;
+        let mut meta = theme::songs_and_length(ids.len(), self.lib.total_duration(&ids));
+        // An imported playlist still filling up.
+        let (downloading, failed) = match pid {
+            Some(id) => {
+                let sh = self.yt.shared.lk();
+                let mine = sh.jobs.iter().filter(|j| j.playlist == Some(id));
+                let (a, f) = mine.fold((0, 0), |(a, f), j| match j.status {
+                    JobStatus::Waiting | JobStatus::Downloading { .. } | JobStatus::Saving => (a + 1, f),
+                    JobStatus::Failed(_) => (a, f + 1),
+                    _ => (a, f),
+                });
+                (a, f)
+            }
+            None => (0, 0),
+        };
+        if downloading > 0 {
+            meta = format!("{meta} · downloading {} more", downloading);
+        }
+        let art = pid.and_then(|id| self.playlist(id)).and_then(|p| p.cover);
         let mode = RowMode { playlist: pid, album_col: self.list_has_albums(&ids), ..RowMode::list() };
         let n = ids.len();
         let ids2 = ids.clone();
@@ -1160,11 +1200,30 @@ impl App {
                 let hr = Rect::from_min_size(r.min, vec2(r.width(), 352.0));
                 let mut hu = ui.new_child(egui::UiBuilder::new().max_rect(hr));
                 app.detail_header(&mut hu, hr, kind, &t2, &meta, art, false, &ids2, pid, pid.is_none());
-                if empty {
+                if failed > 0 {
+                    if let Some(id) = pid {
+                        // Songs that didn't download: say so next to the play buttons, with a retry.
+                        let label = format!("{} didn't download · Try again", theme::plural(failed, "song", "songs"));
+                        let lw = w::text_width(ui, &label, body_strong()) + 52.0;
+                        let br = Rect::from_min_size(pos2(r.right() - PAD_X - lw, hr.top() + 200.0f32.min(r.width() * 0.3) + S6 + 10.0), vec2(lw, 36.0));
+                        let mut bu = ui.new_child(egui::UiBuilder::new().max_rect(br));
+                        if w::pill(&mut bu, &label, Some(icons::REFRESH), PillKind::Ghost).clicked() {
+                            app.actions.push(Action::RetryPlaylist(id));
+                        }
+                    }
+                }
+                if empty && downloading > 0 {
+                    let er = Rect::from_min_max(pos2(r.left(), hr.bottom() - 40.0), r.max);
+                    let mut eu = ui.new_child(egui::UiBuilder::new().max_rect(er).layout(egui::Layout::top_down(egui::Align::Center)));
+                    let body = "Songs show up here as they finish downloading. You can leave this page; it keeps going.";
+                    if w::empty_state(&mut eu, icons::DOWNLOAD, "Downloading your playlist", body, Some(("See downloads", None))) {
+                        app.actions.push(Action::Go(Route::Downloads));
+                    }
+                } else if empty {
                     let er = Rect::from_min_max(pos2(r.left(), hr.bottom() - 40.0), r.max);
                     let mut eu = ui.new_child(egui::UiBuilder::new().max_rect(er).layout(egui::Layout::top_down(egui::Align::Center)));
                     let (t, b) = if pid.is_some() {
-                        ("This playlist is empty", "Right-click any song and choose Add to playlist, or drag songs onto it in the sidebar.")
+                        ("This playlist is empty", "Press + above to find songs, or drag songs onto the playlist in the sidebar.")
                     } else {
                         ("No loved songs yet", "Press the heart next to any song and it lands here.")
                     };
@@ -1331,7 +1390,8 @@ impl App {
                 ui.add_space(S4);
             }
         }
-        self.section_title(ui, if is_link { "From your link" } else { "YouTube" });
+        let link_site = if is_link { crate::ytdlp::site_from_url(q) } else { "YouTube".into() };
+        self.section_title(ui, &if is_link { format!("From {link_site}") } else { "YouTube".to_string() });
         let search = self.yt.shared.lk().search.clone();
         match search {
             Search::Idle => {
@@ -1374,7 +1434,8 @@ impl App {
                 let p = ui.painter();
                 p.rect_filled(r, R_MD, RAISED);
                 icons::glyph(p, pos2(r.left() + 26.0, r.center().y), icons::CIRCLE_ALERT, 20.0, WARN);
-                w::text(p, pos2(r.left() + 48.0, r.top() + 22.0), Align2::LEFT_CENTER, "Couldn't search YouTube", body_strong(), TEXT, wdt - 200.0);
+                let head = if is_link { "Couldn't open this link" } else { "Couldn't search YouTube" };
+                w::text(p, pos2(r.left() + 48.0, r.top() + 22.0), Align2::LEFT_CENTER, head, body_strong(), TEXT, wdt - 200.0);
                 w::text(p, pos2(r.left() + 48.0, r.top() + 42.0), Align2::LEFT_CENTER, &msg, small(), TEXT_2, wdt - 200.0);
                 let br = Rect::from_min_size(pos2(r.right() - 130.0, r.center().y - 18.0), vec2(116.0, 36.0));
                 let mut bu = ui.new_child(egui::UiBuilder::new().max_rect(br));
@@ -1399,53 +1460,96 @@ impl App {
                     return;
                 }
                 if let Some(pl) = &playlist {
-                    let wdt = ui.available_width();
-                    let (r, _) = ui.allocate_exact_size(vec2(wdt, 84.0), Sense::hover());
-                    let p = ui.painter();
-                    p.rect_filled(r, R_LG, RAISED);
-                    icons::glyph(p, pos2(r.left() + 36.0, r.center().y), icons::LIST_MUSIC, 22.0, ACCENT);
-                    w::text(p, pos2(r.left() + 64.0, r.center().y - 10.0), Align2::LEFT_CENTER, &pl.title, body_strong(), TEXT, wdt - 280.0);
-                    let sub = if pl.channel.is_empty() { theme::plural(items.len(), "song", "songs") } else { format!("{} · {}", pl.channel, theme::plural(items.len(), "song", "songs")) };
-                    w::text(p, pos2(r.left() + 64.0, r.center().y + 10.0), Align2::LEFT_CENTER, &sub, small(), TEXT_2, wdt - 280.0);
-                    let (active_ids, failed_ids): (Vec<String>, Vec<String>) = {
-                        let sh = self.yt.shared.lk();
-                        (
-                            sh.jobs
-                                .iter()
-                                .filter(|j| !matches!(&j.status, JobStatus::Failed(_)) && !matches!(&j.status, JobStatus::Done(p) if self.download_gone(p)))
-                                .map(|j| j.item.id.clone())
-                                .collect(),
-                            sh.jobs.iter().filter(|j| matches!(j.status, JobStatus::Failed(_))).map(|j| j.item.id.clone()).collect(),
-                        )
-                    };
-                    let _ = failed_ids;
-                    let need: Vec<YtItem> = items
-                        .iter()
-                        .filter(|i| !self.lib.yt_ids.contains(&i.id) && !active_ids.contains(&i.id))
-                        .cloned()
-                        .collect();
-                    let in_progress = items.iter().any(|i| !self.lib.yt_ids.contains(&i.id) && active_ids.contains(&i.id));
-                    let label = if !need.is_empty() {
-                        if need.len() == items.len() { format!("Download all {}", items.len()) } else { format!("Download {} more", need.len()) }
-                    } else if in_progress {
-                        "Downloading…".to_string()
-                    } else {
-                        "All downloaded".to_string()
-                    };
-                    let bw = w::text_width(ui, &label, body_strong()) + 60.0;
-                    let br = Rect::from_min_size(pos2(r.right() - bw - S4, r.center().y - 18.0), vec2(bw, 36.0));
-                    let mut bu = ui.new_child(egui::UiBuilder::new().max_rect(br));
-                    let resp = w::pill(&mut bu, &label, Some(icons::DOWNLOAD), if need.is_empty() { PillKind::Secondary } else { PillKind::Primary });
-                    if resp.clicked() && !need.is_empty() {
-                        self.actions.push(Action::YtDownload { items: items.clone(), playlist_name: Some(pl.title.clone()) });
-                    }
-                    ui.add_space(S3);
+                    self.link_playlist_card(ui, pl, &items);
                 }
                 for (i, item) in items.iter().enumerate() {
                     self.yt_row(ui, item, i);
                 }
             }
         }
+    }
+
+    /// The header for a playlist or album link: its picture, name, and the two ways to keep it.
+    fn link_playlist_card(&mut self, ui: &mut Ui, pl: &crate::ytdlp::PlaylistInfo, items: &[YtItem]) {
+        let wdt = ui.available_width();
+        let (r, _) = ui.allocate_exact_size(vec2(wdt, 104.0), Sense::hover());
+        let p = ui.painter().clone();
+        p.rect_filled(r, R_LG, RAISED);
+        let ar = Rect::from_min_size(pos2(r.left() + S4, r.top() + S4), Vec2::splat(72.0));
+        let tex = (!pl.cover.is_empty()).then(|| self.art.get(ArtKey::Url(pl.cover.clone()))).flatten();
+        if tex.is_some() {
+            w::art(&p, ar, tex, R_SM + 2.0, Color32::WHITE);
+        } else {
+            p.rect_filled(ar, R_SM + 2.0, RAISED_2);
+            icons::glyph(&p, ar.center(), icons::LIST_MUSIC, 26.0, TEXT_2);
+        }
+        let saved = self
+            .playlists
+            .iter()
+            .find(|x| x.source.as_ref().map(|s| s.url == pl.url).unwrap_or(false))
+            .map(|x| x.id);
+        let (active, have): (Vec<String>, usize) = {
+            let sh = self.yt.shared.lk();
+            (
+                sh.jobs
+                    .iter()
+                    .filter(|j| matches!(j.status, JobStatus::Waiting | JobStatus::Downloading { .. } | JobStatus::Saving))
+                    .map(|j| j.item.id.clone())
+                    .collect(),
+                items.iter().filter(|i| self.lib.yt_ids.contains(&i.id)).count(),
+            )
+        };
+        let need: Vec<YtItem> = items.iter().filter(|i| !self.lib.yt_ids.contains(&i.id) && !active.contains(&i.id)).cloned().collect();
+
+        // Buttons first, so the text knows how much room it has.
+        let save_label = if saved.is_some() { "Saved" } else { "Save playlist" };
+        let dl_label = if !need.is_empty() {
+            if have == 0 { format!("Download all {}", items.len()) } else { format!("Download {} more", need.len()) }
+        } else if items.iter().any(|i| active.contains(&i.id)) {
+            "Downloading…".to_string()
+        } else {
+            "All downloaded".to_string()
+        };
+        let sw = w::text_width(ui, save_label, body_strong()) + 60.0;
+        let dw = w::text_width(ui, &dl_label, body_strong()) + 60.0;
+        let by = r.center().y - 18.0;
+        let save_r = Rect::from_min_size(pos2(r.right() - S4 - sw, by), vec2(sw, 36.0));
+        let dl_r = Rect::from_min_size(pos2(save_r.left() - S2 - dw, by), vec2(dw, 36.0));
+        let mut su = ui.new_child(egui::UiBuilder::new().max_rect(save_r));
+        let save_icon = if saved.is_some() { icons::CHECK } else { icons::LIST_PLUS };
+        let kind = if saved.is_some() { PillKind::Secondary } else { PillKind::Primary };
+        let sresp = w::pill(&mut su, save_label, Some(save_icon), kind).on_hover_text(if saved.is_some() {
+            "Open it in your playlists"
+        } else {
+            "Adds it to your playlists and downloads its songs into it"
+        });
+        if sresp.clicked() {
+            match saved {
+                Some(pid) if need.is_empty() => self.actions.push(Action::Go(Route::Playlist(pid))),
+                _ => self.actions.push(Action::SavePlaylist { info: pl.clone(), items: items.to_vec() }),
+            }
+        }
+        let mut du = ui.new_child(egui::UiBuilder::new().max_rect(dl_r));
+        let dresp = w::pill(&mut du, &dl_label, Some(icons::DOWNLOAD), PillKind::Secondary)
+            .on_hover_text("Downloads the songs without making a playlist");
+        if dresp.clicked() && !need.is_empty() {
+            self.actions.push(Action::YtDownload { items: need.clone(), playlist_name: None });
+        }
+
+        let tx = ar.right() + S4;
+        let tw = dl_r.left() - S4 - tx;
+        let kind = if pl.site == "Spotify" && items.len() > 1 && pl.channel.is_empty() { "Album" } else { "Playlist" };
+        w::text(&p, pos2(tx, r.center().y - 20.0), Align2::LEFT_CENTER, &format!("{} {}", pl.site, kind.to_lowercase()), small_strong(), TEXT_2, tw);
+        w::text(&p, pos2(tx, r.center().y), Align2::LEFT_CENTER, &pl.title, FontId::new(18.0, bold()), TEXT, tw);
+        let mut sub = theme::plural(items.len(), "song", "songs");
+        if !pl.channel.is_empty() {
+            sub = format!("{} · {sub}", pl.channel);
+        }
+        if have > 0 {
+            sub = format!("{sub} · {have} in your library");
+        }
+        w::text(&p, pos2(tx, r.center().y + 21.0), Align2::LEFT_CENTER, &sub, small(), TEXT_2, tw);
+        ui.add_space(S3);
     }
 
     fn yt_row(&mut self, ui: &mut Ui, item: &YtItem, i: usize) {
@@ -1469,7 +1573,7 @@ impl App {
 
         // Thumbnail, with play / loading / now-playing on top.
         let tr = Rect::from_min_size(pos2(rect.left(), rect.top() + 7.0), vec2(96.0, 54.0));
-        let tex = self.art.get(ArtKey::Url(item.thumb_url()));
+        let tex = item.thumb_url().and_then(|u| self.art.get(ArtKey::Url(u)));
         w::thumb(&p, tr, tex, R_SM + 2.0);
         let veil = if loading || playing_this { 1.0 } else { h };
         if veil > 0.0 {
@@ -1494,7 +1598,13 @@ impl App {
         let tw = rect.right() - tx - 64.0;
         let title_c = if playing_this { ACCENT } else { TEXT };
         w::text(&p, pos2(tx, rect.center().y - 9.0), Align2::LEFT_CENTER, &item.title, body(), title_c, tw);
-        let sub = if saved || !playing_this { item.channel.clone() } else { format!("{} · Playing from YouTube", item.channel) };
+        let mut sub = item.channel.clone();
+        if !item.is_youtube() {
+            sub = if sub.is_empty() { item.source().to_string() } else { format!("{} · {sub}", item.source()) };
+        }
+        if playing_this && !saved {
+            sub = format!("{sub} · Playing");
+        }
         w::text(&p, pos2(tx, rect.center().y + 11.0), Align2::LEFT_CENTER, &sub, small(), TEXT_2, tw);
 
         let br = Rect::from_center_size(pos2(rect.right() - 24.0, rect.center().y), Vec2::splat(40.0));
@@ -1554,7 +1664,7 @@ impl App {
         }
     }
 
-    fn play_yt(&mut self, yt_id: &str, job: Option<&crate::ytdlp::Job>) {
+    pub(crate) fn play_yt(&mut self, yt_id: &str, job: Option<&crate::ytdlp::Job>) {
         if let Some(t) = self.lib.tracks.iter().find(|t| t.yt_id.as_deref() == Some(yt_id)) {
             self.actions.push(Action::PlayIds { ids: vec![t.id], start: 0, shuffle: None });
         } else if let Some(JobStatus::Done(path)) = job.map(|j| &j.status) {
@@ -1627,7 +1737,7 @@ impl App {
         let p = ui.painter().clone();
         w::hover_surface(&p, rect.expand2(vec2(S2, 0.0)), h);
         let tr = Rect::from_min_size(pos2(rect.left(), rect.top() + 9.0), vec2(96.0, 54.0));
-        let tex = self.art.get(ArtKey::Url(j.item.thumb_url()));
+        let tex = j.item.thumb_url().and_then(|u| self.art.get(ArtKey::Url(u)));
         w::thumb(&p, tr, tex, R_SM + 2.0);
         let tx = tr.right() + S4;
         let tw = rect.right() - tx - 120.0;
@@ -1753,6 +1863,12 @@ impl App {
                     if toggle_row(ui, "Keep playing when the queue ends", "Plays on through your Songs list, so the music doesn't stop.", &mut auto) {
                         app.actions.push(Action::SetAutoplay(auto));
                     }
+                    ui.add_space(S3);
+                    let mut spin = app.settings.spin_record;
+                    if toggle_row(ui, "Spin the record on Now Playing", "Turn off to save a little battery while that screen is open.", &mut spin) {
+                        app.settings.spin_record = spin;
+                        app.settings.save();
+                    }
                 });
 
                 // Close behavior
@@ -1771,10 +1887,10 @@ impl App {
                 let status = match (&setup, &version) {
                     (Setup::Working { label, .. }, _) => format!("{label}…"),
                     (Setup::Failed(m), _) => m.clone(),
-                    (_, Some(v)) => format!("yt-dlp {v} · saves M4A with cover art"),
+                    (_, Some(v)) => format!("yt-dlp {v} · saves songs with cover art"),
                     _ => "Sets itself up the first time you search or download.".into(),
                 };
-                self.settings_card(ui2, "YouTube downloads", &status, |app, ui| {
+                self.settings_card(ui2, "Downloads from YouTube and other sites", &status, |app, ui| {
                     if version.is_some() {
                         if w::pill(ui, "Update yt-dlp", Some(icons::REFRESH), PillKind::Secondary).clicked() {
                             app.actions.push(Action::YtUpdate);
@@ -1880,98 +1996,6 @@ impl App {
 
     // -----------------------------------------------------------------------------------------
     // Now Playing
-
-    fn now_playing_page(&mut self, ui: &mut Ui) -> (f32, String) {
-        let rect = ui.max_rect();
-        let Some(t) = self.now_info() else {
-            ui.add_space(TOPBAR_H + S8);
-            if w::empty_state(ui, icons::MUSIC, "Nothing playing", "Pick a song and it shows up here, big.", Some(("Browse songs", None))) {
-                self.actions.push(Action::Go(Route::Songs));
-            }
-            return (0.0, String::new());
-        };
-        let wide = rect.width() > 860.0;
-        let avail_h = rect.height() - TOPBAR_H - S8;
-        let left_w = if wide { rect.width() * 0.56 } else { rect.width() };
-        let art_s = (avail_h - 110.0).min(left_w - 2.0 * PAD_X - S8).min(460.0).max(160.0);
-        let cx = rect.left() + left_w / 2.0;
-        let top = rect.top() + TOPBAR_H + ((avail_h - art_s - 90.0) / 2.0).max(0.0);
-        let ar = Rect::from_min_size(pos2(cx - art_s / 2.0, top), Vec2::splat(art_s));
-        let p = ui.painter().clone();
-        // Art "breathes" slightly smaller while paused (one short transition, not a loop).
-        let play_t = ui.ctx().animate_bool_with_time(Id::new("np-playing"), self.ps.playing, T_SLOW);
-        let ar_s = w::scale_rect(ar, 0.92 + 0.08 * play_t);
-        w::soft_shadow(&p, ar_s, R_LG, 0.6 + 0.6 * play_t);
-        let tex = self.art.cover(t.art, ArtSize::L);
-        w::art(&p, ar_s, tex, R_LG, Color32::WHITE);
-        w::text(&p, pos2(cx, ar.bottom() + 40.0), Align2::CENTER_CENTER, &t.title, FontId::new(24.0, bold()), TEXT, left_w - 2.0 * PAD_X);
-        let sub = if t.preview.is_some() {
-            format!("{} · From YouTube", t.artist)
-        } else if t.album.is_empty() {
-            t.artist.clone()
-        } else {
-            format!("{} · {}", t.artist, t.album)
-        };
-        let sr = w::text(&p, pos2(cx, ar.bottom() + 70.0), Align2::CENTER_CENTER, &sub, body(), TEXT_2, left_w - 2.0 * PAD_X);
-        if let Some(key) = t.artist_key {
-            let resp = ui.interact(sr, Id::new("np-artist"), Sense::click());
-            if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
-                self.actions.push(Action::Go(Route::Artist(key)));
-            }
-        }
-
-        if wide {
-            let qr = Rect::from_min_max(pos2(rect.left() + left_w, rect.top() + TOPBAR_H + S4), pos2(rect.right() - PAD_X, rect.bottom() - S4));
-            p.rect_filled(qr, R_LG, with_alpha(Color32::BLACK, 0.22));
-            let inner = qr.shrink(S4);
-            w::text(&p, pos2(inner.left(), inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), TEXT, inner.width());
-            let fit = ((inner.height() - 40.0) / 56.0).max(0.0) as usize;
-            // Queue first; when it runs out, the library songs that play after it.
-            let mut up: Vec<(Option<usize>, u64)> = self.ps.queue.iter().enumerate().skip(self.ps.index + 1).take(fit).map(|(i, q)| (Some(i), q.id)).collect();
-            let from_queue = up.len();
-            if up.len() < fit {
-                let more = self.autoplay_preview(fit - up.len());
-                up.extend(more.into_iter().map(|id| (None, id)));
-            }
-            if up.is_empty() {
-                w::text(&p, pos2(inner.left(), inner.top() + 48.0), Align2::LEFT_CENTER, "That's the last song.", small(), TEXT_2, inner.width());
-            }
-            let mut y = inner.top() + 36.0;
-            for (k, (qi, id)) in up.into_iter().enumerate() {
-                if k == from_queue && qi.is_none() {
-                    if k > 0 {
-                        y += S2;
-                    }
-                    w::text(&p, pos2(inner.left(), y + 10.0), Align2::LEFT_CENTER, "Then from your library", small_strong(), TEXT_3, inner.width());
-                    y += 24.0;
-                }
-                let r = Rect::from_min_size(pos2(inner.left() - S2, y), vec2(inner.width() + S4, 52.0));
-                y += 56.0;
-                if r.bottom() > inner.bottom() + S2 {
-                    break;
-                }
-                let resp = ui.interact(r, Id::new(("np-up", qi, id)), Sense::click());
-                let (h, _) = w::hover_press(ui, &resp);
-                w::hover_surface(&p, r, h * 0.8);
-                let tt = self.info_for(id);
-                let a = Rect::from_min_size(pos2(r.left() + S2, r.top() + 6.0), vec2(40.0, 40.0));
-                let tex = self.art.cover(tt.as_ref().and_then(|t| t.art), ArtSize::S);
-                w::art(&p, a, tex, R_SM, Color32::WHITE);
-                if let Some(tt) = tt {
-                    let c = if qi.is_some() { TEXT } else { TEXT_2 };
-                    w::text(&p, pos2(a.right() + S3, r.center().y - 8.0), Align2::LEFT_CENTER, &tt.title, body(), c, r.width() - 80.0);
-                    w::text(&p, pos2(a.right() + S3, r.center().y + 9.0), Align2::LEFT_CENTER, &tt.artist, small(), TEXT_2, r.width() - 80.0);
-                }
-                if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
-                    match qi {
-                        Some(qi) => self.actions.push(Action::JumpTo(qi)),
-                        None => self.actions.push(Action::PlayFromAutoplay(id)),
-                    }
-                }
-            }
-        }
-        (0.0, String::new())
-    }
 
     // -----------------------------------------------------------------------------------------
     // Welcome (first run: one question)

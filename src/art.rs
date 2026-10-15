@@ -195,6 +195,8 @@ pub enum ArtKey {
     Cover(u64, ArtSize),
     /// Remote thumbnail (YouTube search results), keyed by url.
     Url(String),
+    /// A tiny, heavily blurred copy of a cover, stretched behind the full-screen view.
+    Blur(u64),
 }
 
 enum Loaded {
@@ -341,6 +343,11 @@ fn load(key: &ArtKey) -> Option<ColorImage> {
     match key {
         ArtKey::Cover(k, size) => {
             let img = image::open(art_file(*k, *size)).ok()?;
+            Some(to_color_image(img))
+        }
+        ArtKey::Blur(k) => {
+            let img = image::open(art_file(*k, ArtSize::S)).ok()?;
+            let img = img.resize_exact(40, 40, FilterType::Triangle).blur(3.0);
             Some(to_color_image(img))
         }
         ArtKey::Url(url) => {
