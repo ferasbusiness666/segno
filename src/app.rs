@@ -101,6 +101,7 @@ pub enum Action {
     Toast(String),
     Undo,
     CloseDialog,
+    AcceptDownloadRights,
     QuitApp,
     CheckUpdates,
     RestartToUpdate,
@@ -126,6 +127,8 @@ pub enum Dialog {
     DeleteFile(u64),
     DeletePlaylist(u64),
     CloseChoice,
+    /// Shown once, before the first download: only download what you're allowed to.
+    DownloadRights,
 }
 
 /// Drag payload: songs being dragged (onto a playlist in the sidebar, or within a playlist).
@@ -240,6 +243,8 @@ pub struct App {
     quitting: bool,
     pub toasts: Vec<Toast>,
     pub dialog: Option<Dialog>,
+    /// A download waiting for the "only download what you're allowed to" answer.
+    pending_download: Option<Action>,
     pub rename: Option<(u64, String, bool)>,
     pub selected: Option<u64>,
     pub actions: Vec<Action>,
@@ -357,6 +362,7 @@ impl App {
             quitting: false,
             toasts: Vec::new(),
             dialog: None,
+            pending_download: None,
             rename: None,
             selected: None,
             actions: Vec::new(),
@@ -937,6 +943,12 @@ impl App {
     }
 
     fn run(&mut self, ctx: &egui::Context, a: Action) {
+        // The first download asks you to confirm you'll only download what you're allowed to.
+        if matches!(a, Action::YtDownload { .. } | Action::DownloadPlaylist(_)) && !self.settings.download_rights_ok {
+            self.pending_download = Some(a);
+            self.dialog = Some(Dialog::DownloadRights);
+            return;
+        }
         match a {
             Action::PlayIds { ids, start, shuffle } => {
                 let items = self.qitems(&ids);
@@ -1457,7 +1469,18 @@ impl App {
                     }
                 }
             }
-            Action::CloseDialog => self.dialog = None,
+            Action::CloseDialog => {
+                self.dialog = None;
+                self.pending_download = None;
+            }
+            Action::AcceptDownloadRights => {
+                self.dialog = None;
+                self.settings.download_rights_ok = true;
+                self.settings.save();
+                if let Some(a) = self.pending_download.take() {
+                    self.run(ctx, a);
+                }
+            }
             Action::CheckUpdates => self.updater.check_now(),
             Action::RestartToUpdate => {
                 self.save_all();
@@ -2423,6 +2446,17 @@ impl App {
                         true,
                     )
                 }
+                Dialog::DownloadRights => (
+                    "Only download what you're allowed to".into(),
+                    "Segno can save music from YouTube and other sites. Only download songs you own, \
+                     songs that are free to download, or songs the artist or rights holder lets you \
+                     download. You're responsible for what you download, and for following each \
+                     site's terms."
+                        .into(),
+                    "I understand",
+                    "Cancel",
+                    false,
+                ),
                 Dialog::CloseChoice => (
                     "Keep the music going?".into(),
                     "Segno can keep playing from the tray, near the clock, when you close the window. Click the tray icon to come back.".into(),
@@ -2465,6 +2499,7 @@ impl App {
                     Dialog::DeleteFile(id) => Action::DeleteFile(*id),
                     Dialog::DeletePlaylist(pid) => Action::DeletePlaylist(*pid),
                     Dialog::CloseChoice => Action::HideToTray,
+                    Dialog::DownloadRights => Action::AcceptDownloadRights,
                 };
                 self.actions.push(a);
             } else if secondary_hit {

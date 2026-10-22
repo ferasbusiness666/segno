@@ -19,6 +19,8 @@ use std::time::Duration;
 /// The GitHub repository that publishes releases (owner/name).
 pub const REPO: &str = "ferasbusiness666/segno";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Installed from the Microsoft Store, which handles updates itself.
+pub const STORE: bool = cfg!(feature = "store");
 /// Passed to the new exe after "Restart now" so it waits for this one to close.
 pub const AFTER_UPDATE_ARG: &str = "--after-update";
 const DAY: u64 = 24 * 60 * 60;
@@ -67,8 +69,10 @@ impl Updater {
             last_checked: Arc::new(AtomicU64::new(last_checked)),
             notify,
         };
-        u.start_daily();
-        std::thread::spawn(cleanup);
+        if !STORE {
+            u.start_daily();
+            std::thread::spawn(cleanup);
+        }
         u
     }
 
@@ -85,6 +89,9 @@ impl Updater {
 
     /// Check now (the Settings button). Downloads the update if there is one.
     pub fn check_now(&self) {
+        if STORE {
+            return;
+        }
         self.spawn_check(true);
     }
 

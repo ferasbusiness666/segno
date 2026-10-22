@@ -60,6 +60,38 @@ jobs:
           name: Segno
           path: dist/Segno.exe
 
+      # The Microsoft Store package. The Store signs it, so it needs no certificate here.
+      # Upload Segno.msix in Partner Center. Without the MSIX_* repository variables it still
+      # builds (with test values) so the packaging is checked on every push.
+      - name: Build for the Microsoft Store
+        run: cargo build --release --locked --features store
+
+      - name: Pack Segno.msix
+        shell: pwsh
+        env:
+          MSIX_NAME: ${{ vars.MSIX_NAME || 'Segno.Test' }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=Segno Test' }}
+          MSIX_PUBLISHER_NAME: ${{ vars.MSIX_PUBLISHER_NAME || 'Segno Test' }}
+        run: |
+          $pkg = "msix-pkg"
+          New-Item -ItemType Directory -Force "$pkg/Assets" | Out-Null
+          Copy-Item target/release/segno.exe "$pkg/Segno.exe"
+          Copy-Item packaging/msix/Assets/* "$pkg/Assets/"
+          $m = Get-Content packaging/msix/AppxManifest.xml -Raw
+          $m = $m.Replace('{NAME}', $env:MSIX_NAME).Replace('{PUBLISHER}', $env:MSIX_PUBLISHER)
+          $m = $m.Replace('{PUBLISHER_NAME}', $env:MSIX_PUBLISHER_NAME).Replace('{VERSION}', '${{ steps.version.outputs.version }}')
+          Set-Content -Path "$pkg/AppxManifest.xml" -Value $m -Encoding utf8
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx) { throw "makeappx.exe not found" }
+          & $makeappx.FullName pack /d $pkg /p dist/Segno.msix /o
+          if ($LASTEXITCODE -ne 0) { throw "makeappx failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Segno-msix
+          path: dist/Segno.msix
+
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
         uses: softprops/action-gh-release@v2

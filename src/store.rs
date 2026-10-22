@@ -132,6 +132,8 @@ pub struct Settings {
     pub last_version: String,
     /// The record turns on the Now Playing screens (redraws ~30 times a second while shown).
     pub spin_record: bool,
+    /// Agreed to only download music they're allowed to (asked before the first download).
+    pub download_rights_ok: bool,
 }
 
 impl Default for Settings {
@@ -159,6 +161,7 @@ impl Default for Settings {
             update_checked: 0,
             last_version: String::new(),
             spin_record: true,
+            download_rights_ok: false,
         }
     }
 }

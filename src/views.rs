@@ -2022,8 +2022,11 @@ impl App {
                     }
                 });
 
-                // Updates
-                {
+                // Updates (the Store version gets them from the Store)
+                if crate::update::STORE {
+                    let status = format!("You're on Segno {}. Updates come from the Microsoft Store.", crate::update::VERSION);
+                    self.settings_card(ui2, "Updates", &status, |_app, _ui| {});
+                } else {
                     use crate::update::{State, VERSION};
                     let st = self.updater.state();
                     let status = match &st {
