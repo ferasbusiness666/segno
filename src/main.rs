@@ -11,6 +11,7 @@ mod spotify;
 mod queue;
 mod nowplaying;
 mod foryou;
+mod changelog;
 mod stream;
 mod store;
 mod theme;
@@ -67,6 +68,11 @@ fn main() -> eframe::Result {
     install_crash_log();
     if !platform::claim_single_instance() {
         // Another Segno is running: it has been asked to come to the front.
+        return Ok(());
+    }
+    // An update downloaded last time but not installed yet (closed without "Restart now",
+    // or the computer shut down): install it and open the new version instead.
+    if update::install_pending() {
         return Ok(());
     }
     let (rgba, size) = app_icon(64);

@@ -58,6 +58,8 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 - ⬜ **Lyrics spot**: when synced lyrics are on, they sit under the record and song title (see 1.2)
 
 ### General
+- ✅ **What's new window**: shows what changed the first time Segno opens after an update, also in Settings; the same text is the GitHub release notes (CHANGELOG.md) (1.1.4)
+- ✅ **Updates install even without "Restart now"**: closed or shut down? It installs the next time you open Segno (1.1.4)
 - ⬜ **Better animations across the app**: page changes, hovers, panels, lists
 - ✅ **Check for updates more often**: every 3 hours instead of once a day (1.1.3)
 
@@ -83,7 +85,7 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 
 - ⬜ Sleep timer
 - ⬜ App colour follows the cover of the song playing
-- ⬜ Keyboard shortcut list in the app (some shortcuts exist, no full list yet)
+- ✅ Keyboard shortcut list in Settings
 
 ## More platforms
 

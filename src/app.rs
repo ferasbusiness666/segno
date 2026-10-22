@@ -247,6 +247,8 @@ pub struct App {
     quitting: bool,
     pub toasts: Vec<Toast>,
     pub dialog: Option<Dialog>,
+    /// The "What's new" window (after an update, or opened from Settings).
+    pub whats_new: Option<crate::changelog::WhatsNew>,
     /// A download waiting for the "only download what you're allowed to" answer.
     pending_download: Option<Action>,
     pub rename: Option<(u64, String, bool)>,
@@ -368,6 +370,7 @@ impl App {
             quitting: false,
             toasts: Vec::new(),
             dialog: None,
+            whats_new: None,
             pending_download: None,
             rename: None,
             selected: None,
@@ -444,7 +447,7 @@ impl App {
         // First start after an update: say so once.
         if app.settings.last_version != update::VERSION {
             if !app.settings.last_version.is_empty() {
-                app.toast(format!("Updated to Segno {}", update::VERSION));
+                app.whats_new = Some(crate::changelog::WhatsNew::Since(app.settings.last_version.clone()));
             }
             app.settings.last_version = update::VERSION.to_string();
             app.settings.save();
@@ -2465,6 +2468,10 @@ impl App {
                 w::text(&p, r.center(), Align2::CENTER_CENTER, &label, body_strong(), ON_ACCENT, tw);
                 ctx.set_cursor_icon(CursorIcon::Grabbing);
             }
+        }
+
+        if self.dialog.is_none() {
+            self.whats_new_window(&ctx);
         }
 
         if let Some(d) = &self.dialog {

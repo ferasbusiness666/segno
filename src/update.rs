@@ -239,6 +239,7 @@ impl Handle {
         let dest = dir.join(format!("Segno-{}.exe", rel.version));
         // Downloaded before (Segno closed before installing it)? Reuse it if it still checks out.
         if dest.is_file() && verify(&dest, rel).is_ok() {
+            mark_verified(&dest);
             return Ok(dest);
         }
         self.set(State::Downloading { version: rel.version.clone(), pct: 0.0 });
@@ -256,6 +257,7 @@ impl Handle {
             let _ = std::fs::remove_file(&dest);
             return Err(e);
         }
+        mark_verified(&dest);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -372,24 +374,77 @@ fn old_path(exe: &Path) -> PathBuf {
     exe.with_file_name(name)
 }
 
-/// Move the running exe aside and copy the new one into its place. Returns the exe path.
+/// Put the new exe in place of the running one. Returns the exe path.
+///
+/// The slow part (copying the new exe next to the old one) happens first; the swap itself is
+/// two renames in the same folder, which take a moment, so a shutdown or a crash can't leave
+/// Segno half-installed. If anything fails, the working version stays.
 fn swap_in(new: &Path) -> Result<PathBuf, String> {
     let fail = || "Couldn't install the update. Try again, or download it from the website.".to_string();
     let exe = std::env::current_exe().map_err(|_| fail())?;
     if !new.is_file() {
         return Err(fail());
     }
+    let mut next_name = exe.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    next_name.push(".new");
+    let next = exe.with_file_name(next_name);
+    let _ = std::fs::remove_file(&next);
+    if std::fs::copy(new, &next).is_err() {
+        let _ = std::fs::remove_file(&next);
+        return Err(fail());
+    }
     let old = old_path(&exe);
     let _ = std::fs::remove_file(&old);
-    std::fs::rename(&exe, &old).map_err(|_| fail())?;
-    if std::fs::copy(new, &exe).is_err() {
+    if std::fs::rename(&exe, &old).is_err() {
+        let _ = std::fs::remove_file(&next);
+        return Err(fail());
+    }
+    if std::fs::rename(&next, &exe).is_err() {
         // Put the working version back.
-        let _ = std::fs::remove_file(&exe);
         let _ = std::fs::rename(&old, &exe);
+        let _ = std::fs::remove_file(&next);
         return Err(fail());
     }
     let _ = std::fs::remove_file(new);
+    let _ = std::fs::remove_file(verified_marker(new));
     Ok(exe)
+}
+
+/// A small file next to a downloaded update that says it passed the size and checksum check,
+/// so it can be installed later without asking GitHub again.
+fn verified_marker(p: &Path) -> PathBuf {
+    p.with_extension("ok")
+}
+
+fn mark_verified(p: &Path) {
+    let _ = std::fs::write(verified_marker(p), b"ok");
+}
+
+/// Called first thing at startup. If an update was downloaded and checked but Segno was
+/// closed (or the computer shut down) without installing it, install it now and start the
+/// new version instead. Returns true when the new version was started (this one should quit).
+pub fn install_pending() -> bool {
+    if STORE || std::env::args().any(|a| a == AFTER_UPDATE_ARG) || !can_replace_self() {
+        return false;
+    }
+    let Ok(rd) = std::fs::read_dir(update_dir()) else { return false };
+    let newest = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|e| e == "exe").unwrap_or(false) && verified_marker(p).is_file())
+        .filter_map(|p| {
+            let v = p.file_stem()?.to_string_lossy().trim_start_matches("Segno-").to_string();
+            is_newer(&v, VERSION).then_some((v, p))
+        })
+        .max_by(|a, b| if is_newer(&a.0, &b.0) { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less });
+    let Some((_, new)) = newest else { return false };
+    let Ok(exe) = swap_in(&new) else { return false };
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.arg(AFTER_UPDATE_ARG);
+    if let Some(dir) = exe.parent() {
+        cmd.current_dir(dir);
+    }
+    cmd.spawn().is_ok()
 }
 
 /// At startup: delete the exe left over from the last update, and downloads that are no
@@ -408,7 +463,7 @@ fn cleanup() {
     if let Ok(rd) = std::fs::read_dir(update_dir()) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            let ver = name.trim_start_matches("Segno-").trim_end_matches(".exe").trim_end_matches(".part");
+            let ver = name.trim_start_matches("Segno-").trim_end_matches(".exe").trim_end_matches(".part").trim_end_matches(".ok");
             if !is_newer(ver, VERSION) {
                 let _ = std::fs::remove_file(e.path());
             }

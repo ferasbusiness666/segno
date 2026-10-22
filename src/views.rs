@@ -2025,7 +2025,11 @@ impl App {
                 // Updates (the Store version gets them from the Store)
                 if crate::update::STORE {
                     let status = format!("You're on Segno {}. Updates come from the Microsoft Store.", crate::update::VERSION);
-                    self.settings_card(ui2, "Updates", &status, |_app, _ui| {});
+                    self.settings_card(ui2, "Updates", &status, |app, ui| {
+                        if w::pill(ui, "What's new", Some(icons::SPARKLES), PillKind::Secondary).clicked() {
+                            app.whats_new = Some(crate::changelog::WhatsNew::All);
+                        }
+                    });
                 } else {
                     use crate::update::{State, VERSION};
                     let st = self.updater.state();
@@ -2049,7 +2053,7 @@ impl App {
                                     if w::pill(ui, "Restart now", Some(icons::REFRESH), PillKind::Primary).clicked() && settled {
                                         app.actions.push(Action::RestartToUpdate);
                                     }
-                                    if w::pill(ui, "What's new", None, PillKind::Ghost).clicked() {
+                                    if w::pill(ui, "What's in it", None, PillKind::Ghost).clicked() {
                                         app.actions.push(Action::OpenUrl(page.clone()));
                                     }
                                 }
@@ -2068,6 +2072,9 @@ impl App {
                                     }
                                 }
                             }
+                            if w::pill(ui, "What's new", Some(icons::SPARKLES), PillKind::Ghost).clicked() {
+                                app.whats_new = Some(crate::changelog::WhatsNew::All);
+                            }
                         });
                         ui.add_space(S3);
                         if toggle_row(ui, "Update automatically", "Checks every few hours and downloads new versions in the background.", &mut auto) {
@@ -2085,6 +2092,7 @@ impl App {
                         ("Ctrl + F", "Search"),
                         ("Ctrl + M", "Mini player"),
                         ("Ctrl + B", "Fold or unfold the sidebar"),
+                        ("F11  /  Esc", "Full screen on / off"),
                         ("Alt + ←", "Back"),
                         ("Double-click a song", "Play it"),
                     ] {

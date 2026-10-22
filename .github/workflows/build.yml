@@ -46,6 +46,25 @@ jobs:
             exit 1
           fi
 
+      - name: Release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          awk -v v="$version" '/^## /{p = ($2 == v); next} p' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            if [[ "${{ inputs.publish }}" == "true" || "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::CHANGELOG.md has no section for $version. Add a '## $version' section with what changed."
+              exit 1
+            fi
+            echo "::warning::CHANGELOG.md has no section for $version yet."
+          fi
+          {
+            echo
+            echo "---"
+            echo "**New to Segno?** Download **Segno.exe** below and run it, no installer needed. If Windows says \"Windows protected your PC\", click **More info**, then **Run anyway**. Already using Segno? It updates itself."
+          } >> notes.md
+          cat notes.md
+
       - name: Build
         run: cargo build --release --locked
 
@@ -68,10 +87,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Segno ${{ steps.version.outputs.version }}
           files: dist/Segno.exe
-          generate_release_notes: true
-          body: |
-            Download **Segno.exe** below and run it. No installer needed.
-
-            Windows may say "Windows protected your PC" because Segno is new and unsigned. Click **More info**, then **Run anyway**.
-
-            Already using Segno? It updates itself.
+          # The notes are the CHANGELOG.md section for this version (the same text Segno
+          # shows in its "What's new" window).
+          body_path: notes.md
