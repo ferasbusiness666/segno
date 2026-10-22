@@ -248,6 +248,17 @@ pub struct App {
     pub dialog: Option<Dialog>,
     /// The "What's new" window (after an update, or opened from Settings).
     pub whats_new: Option<crate::changelog::WhatsNew>,
+    /// Where the sidebar's page highlight last was.
+    nav_hl: Option<Rect>,
+    /// The song the player bar showed, and the one before it while they cross-fade.
+    bar_last: Option<u64>,
+    bar_prev: Option<(NowInfo, f64)>,
+    /// When a song was last dropped (the queue holds still a moment while it settles).
+    pub flip_hold: f64,
+    /// Popups and menus on screen, when each opened and where it grows from.
+    pop_seen: HashMap<Id, (f64, egui::Pos2)>,
+    /// What you pressed play on, shown above the queue ("From Road Trip Mix").
+    pub play_from: Option<String>,
     /// The song being dragged, and the animations around it (see drag.rs).
     pub lift: Option<crate::drag::Lift>,
     pub drag_aim: Option<Rect>,
@@ -376,6 +387,12 @@ impl App {
             toasts: Vec::new(),
             dialog: None,
             whats_new: None,
+            play_from: None,
+            nav_hl: None,
+            bar_last: None,
+            bar_prev: None,
+            flip_hold: 0.0,
+            pop_seen: HashMap::new(),
             lift: None,
             drag_aim: None,
             settle: None,
@@ -428,7 +445,12 @@ impl App {
                     })
                     .collect::<Vec<_>>()
             };
-            let queue = mk(&r.queue);
+            let queue: Vec<QItem> = mk(&r.queue)
+                .into_iter()
+                .enumerate()
+                .map(|(i, q)| q.with_origin(player::Origin::from_code(r.origins.get(i).copied().unwrap_or(0))))
+                .collect();
+            app.play_from = r.from.clone();
             // Keep uids shared between queue and original for the same entries.
             let mut original = Vec::new();
             let mut used = vec![false; queue.len()];
@@ -475,6 +497,29 @@ impl App {
                 None => self.stream_qitem(*id),
             })
             .collect()
+    }
+
+    /// Queue entries for songs you add by hand (Play next, Add to queue, dragged in).
+    pub fn added_items(&self, ids: &[u64]) -> Vec<QItem> {
+        self.qitems(ids).into_iter().map(|q| q.with_origin(player::Origin::Added)).collect()
+    }
+
+    /// The name of what's being played from, for the queue ("Road Trip Mix", "Songs"…).
+    fn source_label(&self, ids: &[u64]) -> Option<String> {
+        let same = |v: &[u64]| v.len() == ids.len() && v == ids;
+        match &self.route {
+            Route::Songs => Some("Songs".into()),
+            Route::Loved => Some("Loved songs".into()),
+            Route::ForYou => Some("For you".into()),
+            Route::Search => Some("your search".into()),
+            Route::Playlist(pid) => self.playlist(*pid).map(|p| p.name.clone()),
+            Route::Album(k) => self.lib.album(*k).map(|a| a.title.clone()),
+            Route::Artist(k) => self.lib.artist(*k).map(|a| a.name.clone()),
+            // The play button on an album or artist card.
+            Route::Albums => self.lib.albums.iter().find(|a| same(&a.tracks)).map(|a| a.title.clone()),
+            Route::Artists => self.lib.artists.iter().find(|a| same(&a.tracks)).map(|a| a.name.clone()),
+            _ => None,
+        }
     }
 
     /// A playlist's picture: its own cover, else the first song's.
@@ -777,6 +822,8 @@ impl App {
             index: s.index,
             position: self.player.position(),
             streams,
+            origins: s.queue.iter().map(|q| q.origin.code()).collect(),
+            from: self.play_from.clone(),
         };
         self.settings.volume = s.volume;
         self.settings.muted = s.muted;
@@ -1016,10 +1063,12 @@ impl App {
                 let start = start_id
                     .and_then(|id| items.iter().position(|q| q.id == id))
                     .unwrap_or(0);
+                self.play_from = if ids.len() > 1 { self.source_label(&ids) } else { None };
                 self.player.send(Cmd::PlayList { items, start, shuffle });
                 self.mark_dirty();
             }
             Action::PlayPath(p) => {
+                self.play_from = None;
                 let id = path_id(&p);
                 self.player.send(Cmd::PlayList {
                     items: vec![QItem::new(id, p)],
@@ -1032,13 +1081,14 @@ impl App {
                 let ids = self.songs().to_vec();
                 if !ids.is_empty() {
                     self.run(ctx, Action::PlayIds { ids, start: 0, shuffle: None });
+                    self.play_from = Some("Songs".into());
                 }
             }
             Action::Toggle => self.player.send(Cmd::Toggle),
             Action::Next => self.player.send(Cmd::Next),
             Action::InsertInQueue { at, ids } => {
                 let n = ids.len();
-                let items = self.qitems(&ids);
+                let items = self.added_items(&ids);
                 let empty = self.ps.queue.is_empty();
                 self.player.send(Cmd::InsertAt { at, items });
                 if empty {
@@ -1047,7 +1097,7 @@ impl App {
                 self.toast(if n == 1 { "Added to queue".to_string() } else { format!("Added {n} songs to queue") });
             }
             Action::PlayFromAutoplay(id) => {
-                let items = self.qitems(&[id]);
+                let items: Vec<QItem> = self.qitems(&[id]).into_iter().map(|q| q.with_origin(player::Origin::Library)).collect();
                 let at = self.ps.index + 1;
                 self.player.send(Cmd::InsertAt { at, items });
                 self.player.send(Cmd::JumpTo(at));
@@ -1089,7 +1139,7 @@ impl App {
             }
             Action::PlayNext(ids) => {
                 let n = ids.len();
-                let items = self.qitems(&ids);
+                let items = self.added_items(&ids);
                 let empty = self.ps.queue.is_empty();
                 self.player.send(Cmd::PlayNext(items));
                 if empty {
@@ -1099,7 +1149,7 @@ impl App {
             }
             Action::AddToQueue(ids) => {
                 let n = ids.len();
-                let items = self.qitems(&ids);
+                let items = self.added_items(&ids);
                 let empty = self.ps.queue.is_empty();
                 self.player.send(Cmd::AddToQueue(items));
                 if empty {
@@ -1908,17 +1958,29 @@ impl App {
             (icons::USER, "Artists", Route::Artists),
             (icons::SPARKLES, "For you", Route::ForYou),
         ];
+        // One highlight that slides to the page you pick (drawn under the items).
+        let hl = ui.painter().add(egui::Shape::Noop);
+        let mut sel_rect = None;
         for (icon, label, route) in nav {
             let sel = r == route || matches!((&r, &route), (Route::Album(_), Route::Albums) | (Route::Artist(_), Route::Artists));
-            if w::nav_item(ui, icon, label, sel, None).clicked() {
+            let resp = w::nav_item_ex(ui, icon, label, sel, None, false);
+            if sel {
+                sel_rect = Some(resp.rect);
+            }
+            if resp.clicked() {
                 self.actions.push(Action::Go(route));
             }
         }
         let active = self.yt.active_count();
         let badge = (active > 0).then(|| active.to_string());
-        if w::nav_item(ui, icons::DOWNLOAD, "Downloads", r == Route::Downloads, badge).clicked() {
+        let resp = w::nav_item_ex(ui, icons::DOWNLOAD, "Downloads", r == Route::Downloads, badge, false);
+        if r == Route::Downloads {
+            sel_rect = Some(resp.rect);
+        }
+        if resp.clicked() {
             self.actions.push(Action::Go(Route::Downloads));
         }
+        self.nav_highlight(ui, hl, sel_rect);
 
         ui.add_space(S5);
         let (lr, _) = ui.allocate_exact_size(vec2(inner.width(), 28.0), Sense::hover());
@@ -2164,6 +2226,26 @@ impl App {
         }
     }
 
+    /// The sidebar's selected-page highlight: it glides from one item to the next, and fades
+    /// when the page isn't one of them.
+    fn nav_highlight(&mut self, ui: &Ui, slot: egui::layers::ShapeIdx, sel: Option<Rect>) {
+        let ctx = ui.ctx();
+        let shown = ctx.animate_bool_with_time(Id::new("nav-hl-on"), sel.is_some(), T);
+        if let Some(r) = sel {
+            // Coming back from another page: appear in place instead of sliding from the old spot.
+            let snap = shown < 0.05;
+            ctx.animate_value_with_time(Id::new("nav-hl-y"), r.top(), if snap { 0.0 } else { T_SLOW });
+            self.nav_hl = Some(r);
+        }
+        let Some(r) = self.nav_hl else { return };
+        if shown <= 0.0 {
+            return;
+        }
+        let y = ctx.animate_value_with_time(Id::new("nav-hl-y"), r.top(), T_SLOW);
+        let hr = Rect::from_min_size(pos2(r.left(), y), r.size());
+        ui.painter().set(slot, egui::Shape::rect_filled(hr, R_MD, with_alpha(RAISED_2, shown)));
+    }
+
     fn playlist_nav_item(&mut self, ui: &mut Ui, pid: Option<u64>, name: &str, count: usize, selected: bool) {
         let wdt = ui.available_width();
         let (rect, resp) = ui.allocate_exact_size(vec2(wdt, 48.0), Sense::click());
@@ -2265,9 +2347,37 @@ impl App {
         let art_r = Rect::from_min_size(pos2(rect.left() + pad, rect.center().y - 28.0), vec2(56.0, 56.0));
         let art_resp = ui.interact(art_r, Id::new("bar-art"), Sense::click());
         let (ah, _) = w::hover_press(ui, &art_resp);
+        // A new song: the old cover and title fade out and up as the new ones come in.
+        let now = ui.input(|i| i.time);
+        let cur_id = cur.as_ref().map(|t| t.id);
+        if cur_id != self.bar_last {
+            if let (Some(old), Some(_)) = (self.bar_last.and_then(|id| self.info_for(id)), cur_id) {
+                self.bar_prev = Some((old, now));
+            }
+            self.bar_last = cur_id;
+        }
+        let mut swap = 1.0;
+        if let Some((old, at)) = self.bar_prev.clone() {
+            let t = ((now - at) as f32 / 0.34).clamp(0.0, 1.0);
+            if t >= 1.0 {
+                self.bar_prev = None;
+            } else {
+                ui.ctx().request_repaint();
+                swap = egui::emath::easing::cubic_out(t);
+                let tex = self.art.cover(old.art, ArtSize::S);
+                w::art(ui.painter(), art_r, tex, R_SM + 2.0, with_alpha(Color32::WHITE, 1.0 - swap));
+                let tx = art_r.right() + S3;
+                let tw = (rect.left() + left_w - tx - 40.0).max(40.0);
+                let dy = -12.0 * swap;
+                // Out of the way quickly, so the old and new titles never pile up.
+                let a = (1.0 - swap * 3.0).max(0.0);
+                w::text(ui.painter(), pos2(tx, rect.center().y - 9.0 + dy), Align2::LEFT_CENTER, &old.title, body_strong(), with_alpha(TEXT, a), tw);
+                w::text(ui.painter(), pos2(tx, rect.center().y + 10.0 + dy), Align2::LEFT_CENTER, &old.artist, small(), with_alpha(TEXT_2, a), tw);
+            }
+        }
         if let Some(t) = &cur {
             let tex = self.art.cover(t.art, ArtSize::S);
-            w::art(ui.painter(), art_r, tex, R_SM + 2.0, Color32::WHITE);
+            w::art(ui.painter(), w::scale_rect(art_r, 0.94 + 0.06 * swap), tex, R_SM + 2.0, with_alpha(Color32::WHITE, swap));
             if ah > 0.0 {
                 ui.painter().rect_filled(art_r, R_SM + 2.0, with_alpha(Color32::BLACK, 0.45 * ah));
                 icons::glyph(ui.painter(), art_r.center(), icons::MAXIMIZE, 18.0, with_alpha(TEXT, ah));
@@ -2277,12 +2387,14 @@ impl App {
             }
             let tx = art_r.right() + S3;
             let tw = (rect.left() + left_w - tx - 40.0).max(40.0);
-            let title_r = w::text(ui.painter(), pos2(tx, rect.center().y - 9.0), Align2::LEFT_CENTER, &t.title, body_strong(), TEXT, tw);
+            let dy = 12.0 * (1.0 - swap);
+            let ta = ((swap - 0.2) / 0.8).clamp(0.0, 1.0);
+            let title_r = w::text(ui.painter(), pos2(tx, rect.center().y - 9.0 + dy), Align2::LEFT_CENTER, &t.title, body_strong(), with_alpha(TEXT, ta), tw);
             let sub = match &t.preview {
                 Some(i) => format!("{} · From {}", t.artist, i.source()),
                 None => t.artist.clone(),
             };
-            let artist_r = w::text(ui.painter(), pos2(tx, rect.center().y + 10.0), Align2::LEFT_CENTER, &sub, small(), TEXT_2, tw);
+            let artist_r = w::text(ui.painter(), pos2(tx, rect.center().y + 10.0 + dy), Align2::LEFT_CENTER, &sub, small(), with_alpha(TEXT_2, ta), tw);
             if let Some(ak) = t.artist_key {
                 let ar = ui.interact(artist_r, Id::new("bar-artist"), Sense::click());
                 if ar.hovered() {
@@ -2569,6 +2681,37 @@ impl App {
                 }
             } else if close {
                 self.actions.push(Action::CloseDialog);
+            }
+        }
+        self.pop_in(&ctx);
+    }
+
+    /// Menus and popups grow in from where you clicked (they already fade in).
+    fn pop_in(&mut self, ctx: &egui::Context) {
+        const POP: f32 = 0.16;
+        let now = ctx.input(|i| i.time);
+        let screen = ctx.content_rect();
+        let pointer = ctx.input(|i| i.pointer.latest_pos());
+        let layers: Vec<(egui::LayerId, Rect)> = ctx.memory(|m| {
+            m.areas()
+                .visible_layer_ids()
+                .into_iter()
+                .filter(|l| l.order == egui::Order::Foreground && l.id != Id::new("toast"))
+                .filter_map(|l| m.area_rect(l.id).map(|r| (l, r)))
+                // Full-screen layers are dialogs with a backdrop: those only fade.
+                .filter(|(_, r)| r.width() < screen.width() - 2.0)
+                .collect()
+        });
+        self.pop_seen.retain(|id, _| layers.iter().any(|(l, _)| l.id == *id));
+        for (layer, r) in layers {
+            let (since, from) = *self.pop_seen.entry(layer.id).or_insert_with(|| (now, r.clamp(pointer.unwrap_or(r.min))));
+            let t = ((now - since) as f32 / POP).clamp(0.0, 1.0);
+            if t < 1.0 {
+                let s = 0.9 + 0.1 * egui::emath::easing::cubic_out(t);
+                ctx.set_transform_layer(layer, egui::emath::TSTransform::new(from.to_vec2() * (1.0 - s), s));
+                ctx.request_repaint();
+            } else if ctx.layer_transform_to_global(layer).is_some() {
+                ctx.set_transform_layer(layer, egui::emath::TSTransform::IDENTITY);
             }
         }
     }

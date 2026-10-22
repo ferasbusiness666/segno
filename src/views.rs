@@ -331,12 +331,12 @@ impl App {
 
         self.sticky_cols = false;
         let now = ctx.input(|i| i.time);
-        let t = ((now - self.route_t) as f32 / T).clamp(0.0, 1.0);
+        let t = ((now - self.route_t) as f32 / 0.24).clamp(0.0, 1.0);
         let a = egui::emath::easing::cubic_out(t);
         if t < 1.0 {
             ctx.request_repaint();
         }
-        let content = rect.translate(vec2(0.0, (1.0 - a) * 8.0));
+        let content = rect.translate(vec2(0.0, (1.0 - a) * 12.0));
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(content)
@@ -450,7 +450,11 @@ impl App {
                 // One row more on each side: rows sliding aside can come into view.
                 let first = (((viewport.min.y - start) / row_h).floor().max(0.0)) as usize;
                 let last = ((((viewport.max.y - start) / row_h).ceil().max(0.0)) as usize).min(rows);
+                let first_seen = first;
                 let (first, last) = if ds.is_some() { (first.saturating_sub(1), (last + 1).min(rows)) } else { (first, last) };
+                // Just opened: the rows come in one after another.
+                let now = ui.input(|i| i.time);
+                let opened = (now - self.route_t) as f32;
                 for i in first..last {
                     let mut r = Rect::from_min_size(pos2(rows_x.min, origin.y + start + i as f32 * row_h), vec2(rows_x.span(), row_h));
                     let mut faded = false;
@@ -459,9 +463,22 @@ impl App {
                         r = moved;
                         faded = d.away(i);
                     }
+                    let mut enter = 1.0;
+                    if opened < 0.9 {
+                        let order = i.saturating_sub(first_seen).min(14) as f32;
+                        let t = ((opened - 0.03 - order * 0.022) / 0.28).clamp(0.0, 1.0);
+                        if t < 1.0 {
+                            enter = egui::emath::easing::cubic_out(t);
+                            r = r.translate(vec2(0.0, (1.0 - enter) * 18.0));
+                            ui.ctx().request_repaint();
+                        }
+                    }
                     let mut ru = ui.new_child(egui::UiBuilder::new().max_rect(r).id_salt(("row", i)));
                     if faded {
                         ru.multiply_opacity(0.4);
+                    }
+                    if enter < 1.0 {
+                        ru.multiply_opacity(enter);
                     }
                     row(self, &mut ru, r, i);
                 }

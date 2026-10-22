@@ -5,6 +5,9 @@
 //! - The thread blocks on its command channel; it wakes only for commands or a song ending.
 //! - After a pause of 20 s the output device is closed, so Windows can power the audio path down.
 //!   Pressing play again reopens it and seeks back to where you were.
+//!
+//! Volume never jumps: play, pause, skipping, seeking and the volume slider all ramp the sound
+//! (see `Fader`), so there are no clicks or pops.
 
 use crate::store::LockExt;
 use crate::store::Repeat;
@@ -13,12 +16,41 @@ use rodio::Source;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 static UID: AtomicU64 = AtomicU64::new(1);
+
+/// How a song got into the queue (the queue groups them so you can see what plays next).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Origin {
+    /// Part of the list you pressed play on (an album, a playlist, Songs…).
+    #[default]
+    List,
+    /// You added it: Play next, Add to queue, or dragged in.
+    Added,
+    /// Segno carried on with your library after the queue ran out.
+    Library,
+}
+
+impl Origin {
+    pub fn code(self) -> u8 {
+        match self {
+            Origin::List => 0,
+            Origin::Added => 1,
+            Origin::Library => 2,
+        }
+    }
+    pub fn from_code(c: u8) -> Self {
+        match c {
+            1 => Origin::Added,
+            2 => Origin::Library,
+            _ => Origin::List,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct QItem {
@@ -29,6 +61,7 @@ pub struct QItem {
     pub path: PathBuf,
     /// Plays from its site: the file arrives when the app has fetched it (see `Cmd::Fetched`).
     pub stream: bool,
+    pub origin: Origin,
 }
 
 impl QItem {
@@ -38,7 +71,13 @@ impl QItem {
             id,
             path,
             stream: false,
+            origin: Origin::List,
         }
+    }
+
+    pub fn with_origin(mut self, origin: Origin) -> Self {
+        self.origin = origin;
+        self
     }
 
     /// A song that plays from its site. `path` is its fetched file, or a placeholder until then.
@@ -179,6 +218,7 @@ pub fn spawn(notify: Arc<dyn Fn() + Send + Sync>) -> PlayerHandle {
                 last_device_error: None,
                 library,
                 fetcher,
+                fade: None,
             };
             eng.run(rx);
         })
@@ -204,6 +244,115 @@ fn gain(volume: f32, muted: bool) -> f32 {
     }
 }
 
+/// Shared with a `Fader`: where its volume is heading, how fast, and where it is now.
+struct FadeCtl {
+    target: AtomicU32,
+    /// Volume change per second.
+    rate: AtomicU32,
+    level: AtomicU32,
+    /// Jump straight to `snap_to` before the next sample.
+    snap: AtomicBool,
+    snap_to: AtomicU32,
+}
+
+impl FadeCtl {
+    fn new(level: f32) -> Arc<Self> {
+        Arc::new(Self {
+            target: AtomicU32::new(level.to_bits()),
+            rate: AtomicU32::new(1.0f32.to_bits()),
+            level: AtomicU32::new(level.to_bits()),
+            snap: AtomicBool::new(false),
+            snap_to: AtomicU32::new(0),
+        })
+    }
+
+    fn level(&self) -> f32 {
+        f32::from_bits(self.level.load(Ordering::Relaxed))
+    }
+
+    /// Glide to `target` over about `secs`.
+    fn go(&self, target: f32, secs: f32) {
+        let rate = ((target - self.level()).abs() / secs.max(0.001)).max(0.05);
+        self.rate.store(rate.to_bits(), Ordering::Relaxed);
+        self.target.store(target.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Set the volume right away (only while no sound is coming out).
+    fn set_now(&self, v: f32) {
+        self.snap_to.store(v.to_bits(), Ordering::Relaxed);
+        self.level.store(v.to_bits(), Ordering::Relaxed);
+        self.snap.store(true, Ordering::Release);
+    }
+}
+
+/// Plays a song through a volume that glides instead of jumping.
+struct Fader<S> {
+    inner: S,
+    ctl: Arc<FadeCtl>,
+    gain: f32,
+    /// Position inside the current frame (one sample per channel); the volume moves per frame.
+    at: u16,
+}
+
+impl<S: Source> Iterator for Fader<S> {
+    type Item = rodio::Sample;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let v = self.inner.next()?;
+        if self.at == 0 {
+            if self.ctl.snap.swap(false, Ordering::Acquire) {
+                self.gain = f32::from_bits(self.ctl.snap_to.load(Ordering::Relaxed));
+            }
+            let target = f32::from_bits(self.ctl.target.load(Ordering::Relaxed));
+            if self.gain != target {
+                let step = f32::from_bits(self.ctl.rate.load(Ordering::Relaxed)) / self.inner.sample_rate().get() as f32;
+                let d = target - self.gain;
+                self.gain = if d.abs() <= step { target } else { self.gain + step.copysign(d) };
+                self.ctl.level.store(self.gain.to_bits(), Ordering::Relaxed);
+            }
+        }
+        self.at += 1;
+        if self.at >= self.inner.channels().get() {
+            self.at = 0;
+        }
+        Some(v * self.gain as rodio::Sample)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<S: Source> Source for Fader<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.current_span_len()
+    }
+    fn channels(&self) -> rodio::ChannelCount {
+        self.inner.channels()
+    }
+    fn sample_rate(&self) -> rodio::SampleRate {
+        self.inner.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+        self.at = 0;
+        self.inner.try_seek(pos)
+    }
+}
+
+// How long the volume takes to glide (seconds).
+const FADE_PAUSE: f32 = 0.2;
+const FADE_PLAY: f32 = 0.3;
+const FADE_SKIP: f32 = 0.08;
+const FADE_SEEK: f32 = 0.06;
+const FADE_VOLUME: f32 = 0.08;
+/// A song starting from the top only gets a tiny ramp, so its first beat isn't softened.
+const FADE_START: f32 = 0.012;
+
 struct Engine {
     tx: Sender<Cmd>,
     state: Arc<Mutex<State>>,
@@ -216,9 +365,44 @@ struct Engine {
     last_device_error: Option<Instant>,
     library: Arc<Mutex<Vec<(u64, PathBuf)>>>,
     fetcher: Fetcher,
+    /// The volume ramp of the song that's loaded.
+    fade: Option<Arc<FadeCtl>>,
 }
 
 impl Engine {
+    /// The volume the slider asks for (0 when muted).
+    fn want_gain(&self) -> f32 {
+        let s = self.state.lk();
+        gain(s.volume, s.muted)
+    }
+
+    /// Glide the loaded song's volume (doesn't wait).
+    fn fade_to(&self, target: f32, secs: f32) {
+        if let Some(f) = &self.fade {
+            f.go(target, secs);
+        }
+    }
+
+    /// Fade to silence and wait until it's done, so the next step (pause, stop, seek, another
+    /// song) doesn't cut the sound off with a click. Only waits while sound is coming out.
+    fn fade_out(&self, secs: f32) {
+        let (Some(p), Some(f)) = (self.player(), &self.fade) else { return };
+        if p.is_paused() || p.empty() || f.level() <= 0.002 {
+            return;
+        }
+        f.go(0.0, secs);
+        let until = Instant::now() + Duration::from_secs_f32(secs + 0.35);
+        while f.level() > 0.002 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(4));
+        }
+    }
+
+    /// Tell the window right away (before a fade that takes a moment).
+    fn tell_ui(&self) {
+        self.state.lk().version += 1;
+        (self.notify)();
+    }
+
     /// Ask the app to fetch a streamed song (it answers with `Cmd::Fetched`).
     fn want(&self, id: u64) {
         let f = self.fetcher.lk().clone();
@@ -263,6 +447,7 @@ impl Engine {
                             *l = None;
                         }
                         self.sink = None;
+                        self.fade = None;
                         if let Ok(mut s) = self.state.lock() {
                             s.playing = false;
                             s.error = Some("Playback hit a problem. Press play to try again.".into());
@@ -296,6 +481,7 @@ impl Engine {
         if let Some(p) = self.live.lk().take() {
             p.stop();
         }
+        self.fade = None;
         self.gen += 1;
         self.sink = None;
         self.state.lk().idle_pos = pos;
@@ -347,9 +533,12 @@ impl Engine {
     /// Load the current queue item into a fresh player and start at `at` seconds.
     fn load_current(&mut self, at: f32, autoplay: bool) -> bool {
         self.teardown_at = None;
+        // Changing songs mid-song: a quick fade instead of a cut.
+        self.fade_out(FADE_SKIP);
         if let Some(p) = self.live.lk().take() {
             p.stop();
         }
+        self.fade = None;
         self.gen += 1;
         let item = {
             let s = self.state.lk();
@@ -412,15 +601,17 @@ impl Engine {
         let duration = decoder.total_duration().map(|d| d.as_secs_f32()).unwrap_or(0.0);
         let sink = self.sink.as_ref().unwrap();
         let player = rodio::Player::connect_new(sink.mixer());
-        let (vol, muted) = {
-            let s = self.state.lk();
-            (s.volume, s.muted)
-        };
-        player.set_volume(gain(vol, muted));
+        // The volume lives in the fader, which starts silent and glides up: quickly for a song
+        // from the top, slower when picking up in the middle.
+        let fade = FadeCtl::new(0.0);
+        if autoplay {
+            fade.go(self.want_gain(), if at > 0.5 { FADE_PLAY } else { FADE_START });
+        }
         if !autoplay {
             player.pause();
         }
-        player.append(decoder);
+        player.append(Fader { inner: decoder, ctl: fade.clone(), gain: 0.0, at: 0 });
+        self.fade = Some(fade);
         let gen = self.gen;
         let tx = self.tx.clone();
         player.append(EmptyCallback::new(Box::new(move || {
@@ -536,7 +727,11 @@ impl Engine {
                 }
                 match self.player() {
                     Some(p) if !p.empty() => {
+                        if let Some(f) = &self.fade {
+                            f.set_now(0.0);
+                        }
                         p.play();
+                        self.fade_to(self.want_gain(), FADE_PLAY);
                         self.teardown_at = None;
                         self.state.lk().playing = true;
                     }
@@ -547,11 +742,13 @@ impl Engine {
                 }
             }
             Cmd::Pause => {
+                self.state.lk().playing = false;
+                self.tell_ui();
                 if let Some(p) = self.player() {
+                    self.fade_out(FADE_PAUSE);
                     p.pause();
                     self.state.lk().idle_pos = p.get_pos().as_secs_f32();
                 }
-                self.state.lk().playing = false;
                 self.teardown_at = Some(Instant::now() + Duration::from_secs(20));
             }
             Cmd::Next => self.advance(false),
@@ -588,9 +785,7 @@ impl Engine {
                     }
                     s.muted
                 };
-                if let Some(p) = self.player() {
-                    p.set_volume(gain(v, muted));
-                }
+                self.volume_changed(gain(v, muted));
             }
             Cmd::SetMuted(m) => {
                 let v = {
@@ -598,9 +793,7 @@ impl Engine {
                     s.muted = m;
                     s.volume
                 };
-                if let Some(p) = self.player() {
-                    p.set_volume(gain(v, m));
-                }
+                self.volume_changed(gain(v, m));
             }
             Cmd::SetShuffle(on) => {
                 let was = self.state.lk().shuffle;
@@ -637,9 +830,34 @@ impl Engine {
                 }
             }
             Cmd::AddToQueue(items) => {
-                let mut s = self.state.lk();
-                s.queue.extend(items.iter().cloned());
-                s.original.extend(items);
+                // Songs you add go after the current song and the others you added, before the
+                // rest of the list (so they don't wait behind a whole album).
+                let mut guard = self.state.lk();
+                let s = &mut *guard;
+                if s.queue.is_empty() {
+                    s.queue.extend(items.iter().cloned());
+                    s.original.extend(items);
+                    return;
+                }
+                let after_added = |q: &[QItem], from: usize| {
+                    let mut at = from.min(q.len());
+                    while at < q.len() && q[at].origin == Origin::Added {
+                        at += 1;
+                    }
+                    at
+                };
+                let at = after_added(&s.queue, s.index + 1);
+                let cur_uid = s.queue.get(s.index).map(|q| q.uid);
+                for (i, it) in items.iter().enumerate() {
+                    s.queue.insert(at + i, it.clone());
+                }
+                let oat = match cur_uid.and_then(|u| s.original.iter().position(|q| q.uid == u)) {
+                    Some(p) => after_added(&s.original, p + 1),
+                    None => s.original.len(),
+                };
+                for (i, it) in items.into_iter().enumerate() {
+                    s.original.insert(oat + i, it);
+                }
             }
             Cmd::RemoveUid(uid) => {
                 let (was_current, empty) = {
@@ -677,7 +895,23 @@ impl Engine {
                     return;
                 }
                 let cur_uid = s.queue.get(s.index).map(|q| q.uid);
-                let it = s.queue.remove(from);
+                let mut it = s.queue.remove(from);
+                // Moved in among songs you added: it counts as one of them now.
+                let cur = cur_uid.and_then(|u| s.queue.iter().position(|q| q.uid == u));
+                let above = match cur {
+                    Some(c) if to > c + 1 => s.queue.get(to - 1).map(|q| q.origin),
+                    _ => None,
+                };
+                let below = s.queue.get(to).map(|q| q.origin);
+                let added = Some(Origin::Added);
+                let among = match (above, below) {
+                    (None, b) => b == added,
+                    (a, None) => a == added,
+                    (a, b) => a == added && b == added,
+                };
+                if among {
+                    it.origin = Origin::Added;
+                }
                 s.queue.insert(to, it);
                 if let Some(u) = cur_uid {
                     s.index = s.queue.iter().position(|q| q.uid == u).unwrap_or(0);
@@ -720,9 +954,11 @@ impl Engine {
                 s.playing = false;
             }
             Cmd::Stop => {
+                self.fade_out(FADE_SKIP);
                 if let Some(p) = self.live.lk().take() {
                     p.stop();
                 }
+                self.fade = None;
                 self.gen += 1;
                 let mut s = self.state.lk();
                 s.playing = false;
@@ -809,11 +1045,27 @@ impl Engine {
         }
     }
 
+    /// The volume slider or mute: glide there while playing (paused, it applies on play).
+    fn volume_changed(&self, g: f32) {
+        if let Some(p) = self.player() {
+            if !p.is_paused() {
+                self.fade_to(g, FADE_VOLUME);
+            }
+        }
+    }
+
     fn seek(&mut self, secs: f32) {
         let secs = secs.max(0.0);
         match self.player() {
             Some(p) if !p.empty() => {
+                let audible = !p.is_paused();
+                if audible {
+                    self.fade_out(FADE_SEEK);
+                }
                 let _ = p.try_seek(Duration::from_secs_f32(secs));
+                if audible {
+                    self.fade_to(self.want_gain(), FADE_SEEK * 2.0);
+                }
                 self.state.lk().idle_pos = secs;
             }
             _ => self.state.lk().idle_pos = secs,
@@ -841,7 +1093,7 @@ impl Engine {
                 if Some(*id) == cur || (skip_queued && queued.contains(id)) {
                     continue;
                 }
-                out.push(QItem::new(*id, path.clone()));
+                out.push(QItem::new(*id, path.clone()).with_origin(Origin::Library));
                 if out.len() >= 50 {
                     break;
                 }
@@ -906,9 +1158,11 @@ impl Engine {
             }
         } else {
             // End of the queue: stop and rewind the last song, like other players do.
+            self.fade_out(FADE_SKIP);
             if let Some(p) = self.live.lk().take() {
                 p.stop();
             }
+            self.fade = None;
             self.gen += 1;
             let mut s = self.state.lk();
             s.playing = false;

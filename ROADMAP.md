@@ -49,7 +49,7 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 - ✅ **Scroll while dragging**: the mouse wheel works while holding a song, and holding it near the top or bottom of any list scrolls it (1.1.5)
 
 ### Queue
-- ⬜ **Clear what plays next**: make it obvious what comes after the current song, what you added by hand, and what Segno adds from your library
+- ✅ **Clear what plays next**: the queue is grouped into "Added by you", "From <what you played>" and "From your library"; Add to queue goes before the rest of the list (1.1.6)
 - ✅ **Queue panel slides in from the right** everywhere it opens (1.1.3)
 
 ### Full screen
@@ -60,7 +60,8 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 ### General
 - ✅ **What's new window**: shows what changed the first time Segno opens after an update, also in Settings; the same text is the GitHub release notes (CHANGELOG.md) (1.1.4)
 - ✅ **Updates install even without "Restart now"**: closed or shut down? It installs the next time you open Segno (1.1.4)
-- ⬜ **Better animations across the app**: page changes, hovers, panels, lists
+- ✅ **Better animations across the app**: rows slide in on page open, menus grow in, sliding sidebar highlight, player bar song change, queue rows glide, button press (1.1.6)
+- ✅ **Smooth volume**: fades on play, pause, skip, seek and volume changes, no clicks (1.1.6)
 - ✅ **Check for updates more often**: every 3 hours instead of once a day (1.1.3)
 
 ---

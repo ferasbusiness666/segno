@@ -103,6 +103,12 @@ pub struct Resume {
     /// Songs in the queue that play from their site (their entries above are `stream_entry`s).
     #[serde(default)]
     pub streams: Vec<crate::ytdlp::YtItem>,
+    /// How each queue entry got there (see `player::Origin`), in queue order.
+    #[serde(default)]
+    pub origins: Vec<u8>,
+    /// What you pressed play on ("Road Trip Mix", "Songs"…).
+    #[serde(default)]
+    pub from: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

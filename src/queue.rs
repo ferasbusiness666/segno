@@ -5,7 +5,7 @@ use crate::app::{Action, App, DragSongs};
 use crate::art::ArtSize;
 use crate::drag::DragList;
 use crate::icons;
-use crate::player::QItem;
+use crate::player::{Origin, QItem};
 use crate::store::Repeat;
 use crate::theme::*;
 use crate::views::{menu_item, menu_sep};
@@ -14,6 +14,8 @@ use egui::{pos2, vec2, Align2, Color32, CursorIcon, Id, Rect, Response, Sense, U
 use std::collections::HashSet;
 
 const ROW: f32 = 56.0;
+/// A group heading inside the queue ("Added by you", "From Road Trip Mix"…).
+const HEAD_H: f32 = 30.0;
 
 /// Hover for rows that sit on a colored backdrop: a light veil instead of a gray block.
 fn glass_hover(p: &egui::Painter, rect: Rect, h: f32) {
@@ -56,8 +58,19 @@ impl App {
             self.queue_row(ui, r, &cur, self.ps.index, true, salt, false);
             y += ROW + S3;
         }
-        let upcoming: Vec<(usize, QItem)> = self.ps.queue.iter().enumerate().skip(self.ps.index + 1).map(|(i, q)| (i, q.clone())).collect();
-        let n = upcoming.len();
+        let base = self.ps.index + 1;
+        let n = self.ps.queue.len().saturating_sub(base);
+        // The queue in groups: what you added, the rest of what you pressed play on, then what
+        // Segno adds from your library. Each group starts with a heading.
+        let origins: Vec<Origin> = self.ps.queue[base.min(self.ps.queue.len())..].iter().map(|q| q.origin).collect();
+        let mut heads: Vec<usize> = Vec::new();
+        let mut head_kind: Vec<Origin> = Vec::new();
+        for (k, o) in origins.iter().enumerate() {
+            if k == 0 || origins[k - 1] != *o {
+                heads.push(k);
+                head_kind.push(*o);
+            }
+        }
 
         // Header: how many are lined up, then Add and Clear.
         let hr = Rect::from_min_size(pos2(list_r.left(), y), vec2(list_r.width(), 28.0));
@@ -76,7 +89,7 @@ impl App {
             self.add_query.clear();
             self.add_focus = true;
         }
-        let queued: HashSet<u64> = upcoming.iter().map(|(_, q)| q.id).collect();
+        let queued: HashSet<u64> = self.ps.queue.iter().skip(base).map(|q| q.id).collect();
         self.add_songs_popup(&aresp, AddTo::Queue, &queued);
         if n > 0 {
             let tw = w::text_width(ui, "Clear", small_strong()) + S2;
@@ -86,12 +99,14 @@ impl App {
                 self.actions.push(Action::ClearQueue);
             }
         }
-        y = hr.bottom() + S1;
+        y = hr.bottom();
         let body = Rect::from_min_max(pos2(list_r.left(), y), list_r.max);
 
         // After the queue, the library carries on (unless the queue repeats).
         let auto = if self.ps.repeat == Repeat::Off { self.autoplay_preview(5) } else { Vec::new() };
-        let auto_h = if auto.is_empty() { 0.0 } else { 34.0 + auto.len() as f32 * ROW };
+        // No new heading when the queue already ends with songs from the library.
+        let auto_head = !auto.is_empty() && origins.last() != Some(&Origin::Library);
+        let auto_h = if auto.is_empty() { 0.0 } else { (if auto_head { HEAD_H } else { 0.0 }) + auto.len() as f32 * ROW };
         let end_h = if n == 0 && auto.is_empty() { 44.0 } else { 0.0 };
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(body).layout(egui::Layout::top_down(egui::Align::Min)));
         egui::ScrollArea::vertical()
@@ -101,32 +116,57 @@ impl App {
                 let top = ui.max_rect().top();
                 let left = ui.max_rect().left();
                 let wdt = ui.max_rect().width();
+                let changed = self.queue_changed_at(ui, salt);
                 // Carrying a song over the queue: the rows part where it would go.
-                let ds = self.drag_layout(ui, DragList::Queue, key, list_r, egui::Rangef::new(left, left + wdt), top, ROW, n, true);
-                let total = (n + ds.extra()) as f32 * ROW + auto_h + end_h + S2;
+                let rows_x = egui::Rangef::new(left, left + wdt);
+                let ds = self.drag_layout_with_heads(ui, DragList::Queue, key, list_r, rows_x, top, ROW, n, true, heads.clone(), HEAD_H);
+                let total = ds.row_y(n) + ds.extra() as f32 * ROW + auto_h + end_h + S2;
                 ui.set_min_height(total);
                 // Only the rows on screen are built, so a queue of thousands stays cheap.
-                let first = ((vp.min.y / ROW).floor().max(0.0) as usize).saturating_sub(1).min(n);
-                let last = (((vp.max.y / ROW).ceil().max(0.0) as usize) + 1).min(n);
-                for (qi, q) in &upcoming[first..last] {
-                    let k = *qi - (self.ps.index + 1);
-                    let r = Rect::from_min_size(pos2(left, top + k as f32 * ROW), vec2(wdt, ROW));
-                    let Some(r) = self.row_rect(ui, &ds, k, r) else { continue };
-                    self.queue_row(ui, r, q, *qi, false, salt, ds.away(k));
+                let mut k = ((vp.min.y / ROW).floor().max(0.0) as usize).min(n);
+                while k > 0 && ds.row_y(k - 1) + ROW > vp.min.y {
+                    k -= 1;
                 }
-                let mut y = top + n as f32 * ROW;
+                k = k.saturating_sub(1);
+                while k < n && ds.row_y(k) < vp.max.y + ROW {
+                    // Rows glide to their new spot when songs are added, removed or played.
+                    let uid = self.ps.queue[base + k].uid;
+                    let (y, appear) = self.glide_y(ui, Id::new((salt, "q-glide", uid)), ds.row_y(k), changed);
+                    let r = Rect::from_min_size(pos2(left, top + y), vec2(wdt, ROW));
+                    let (r, draw) = self.row_place(ui, &ds, k, r);
+                    if let Ok(h) = heads.binary_search(&k) {
+                        if ds.head_shown(k) {
+                            let hr = Rect::from_min_max(pos2(left, r.top() - HEAD_H), pos2(left + wdt, r.top()));
+                            self.group_heading(ui, hr, head_kind[h]);
+                        }
+                    }
+                    if draw {
+                        let q = self.ps.queue[base + k].clone();
+                        if appear < 1.0 {
+                            let mut fu = ui.new_child(egui::UiBuilder::new().max_rect(r).id_salt(("q-new", q.uid)));
+                            fu.multiply_opacity(appear);
+                            self.queue_row(&fu, r, &q, base + k, false, salt, ds.away(k));
+                        } else {
+                            self.queue_row(ui, r, &q, base + k, false, salt, ds.away(k));
+                        }
+                    }
+                    k += 1;
+                }
+                // What comes after the queue moves with it while songs are dragged in or out.
+                let er = Rect::from_min_size(pos2(left, top + ds.row_y(n)), vec2(wdt, 1.0));
+                let mut y = self.row_place(ui, &ds, n, er).0.top();
                 if n == 0 && auto.is_empty() {
                     w::text(ui.painter(), pos2(left + S1, y + 18.0), Align2::LEFT_CENTER, "That's the last song.", small(), TEXT_3, wdt);
                 }
                 if !auto.is_empty() {
-                    // The library songs after the queue make room too.
-                    let r = Rect::from_min_size(pos2(left, y), vec2(wdt, 1.0));
-                    y = self.row_rect(ui, &ds, n, r).unwrap_or(r).top() + 8.0;
-                    let t = if n == 0 { "From your library" } else { "Then from your library" };
-                    w::text(ui.painter(), pos2(left + S1, y + 12.0), Align2::LEFT_CENTER, t, small_strong(), TEXT_3, wdt);
-                    y += 26.0;
+                    if auto_head {
+                        let hr = Rect::from_min_size(pos2(left, y), vec2(wdt, HEAD_H));
+                        self.group_heading(ui, hr, Origin::Library);
+                        y += HEAD_H;
+                    }
                     for id in &auto {
-                        let r = Rect::from_min_size(pos2(left, y), vec2(wdt, ROW));
+                        let (gy, _) = self.glide_y(ui, Id::new((salt, "auto-glide", *id)), y - top, f64::NEG_INFINITY);
+                        let r = Rect::from_min_size(pos2(left, top + gy), vec2(wdt, ROW));
                         if r.bottom() >= vp.min.y + top && r.top() <= vp.max.y + top {
                             self.autoplay_row(ui, r, *id, salt);
                         }
@@ -136,6 +176,73 @@ impl App {
                 self.drag_scroll(ui, ui.clip_rect());
                 self.drag_drop(ui, &ds);
             });
+    }
+
+    /// A queue row's spot (from the top of the list), gliding from where it was last time.
+    /// Big jumps (a new queue) and the moment after a drop (the rows are already in place) don't
+    /// glide.
+    /// Also returns how far a song that just joined the queue has faded in.
+    fn glide_y(&self, ui: &Ui, id: Id, target: f32, changed: f64) -> (f32, f32) {
+        let ctx = ui.ctx();
+        let now = ctx.input(|i| i.time);
+        let last: Option<f32> = ctx.data(|d| d.get_temp(id.with("last")));
+        ctx.data_mut(|d| d.insert_temp(id.with("last"), target));
+        let jump = last.map(|l| (l - target).abs() > ROW * 6.0).unwrap_or(true);
+        let hold = now - self.flip_hold < 0.4;
+        let y = ctx.animate_value_with_time(id, target, if jump || hold { 0.0 } else { 0.24 });
+        // New in the queue (not just scrolled into view): fade in.
+        let born_key = id.with("born");
+        if last.is_none() && now - changed < 0.3 {
+            ctx.data_mut(|d| d.insert_temp(born_key, now));
+        }
+        let alpha = match ctx.data(|d| d.get_temp::<f64>(born_key)) {
+            Some(b) => {
+                let t = ((now - b) / 0.3).clamp(0.0, 1.0) as f32;
+                if t >= 1.0 {
+                    ctx.data_mut(|d| d.remove::<f64>(born_key));
+                } else {
+                    ctx.request_repaint();
+                }
+                t
+            }
+            None => 1.0,
+        };
+        (y, alpha)
+    }
+
+    /// When the queue last changed (songs added, removed, or the next one started).
+    fn queue_changed_at(&self, ui: &Ui, salt: &str) -> f64 {
+        let ctx = ui.ctx();
+        let now = ctx.input(|i| i.time);
+        let sig = (self.ps.queue.len(), self.ps.index, self.ps.queue.get(self.ps.index + 1).map(|q| q.uid));
+        let key = Id::new((salt, "q-sig"));
+        let (last, at): ((usize, usize, Option<u64>), f64) = ctx.data(|d| d.get_temp(key)).unwrap_or((sig, f64::NEG_INFINITY));
+        if last != sig {
+            ctx.data_mut(|d| d.insert_temp(key, (sig, now)));
+            return now;
+        }
+        ctx.data_mut(|d| d.insert_temp(key, (sig, at)));
+        at
+    }
+
+    /// The heading over a group of queued songs.
+    fn group_heading(&self, ui: &Ui, r: Rect, kind: Origin) {
+        let (icon, text, color) = match kind {
+            Origin::Added => (icons::USER, "Added by you".to_string(), ACCENT),
+            Origin::List => (
+                icons::LIST_MUSIC,
+                match &self.play_from {
+                    Some(f) => format!("From {f}"),
+                    None => "From your list".to_string(),
+                },
+                TEXT_3,
+            ),
+            Origin::Library => (icons::MUSIC, "From your library".to_string(), TEXT_3),
+        };
+        let p = ui.painter();
+        let y = r.bottom() - 12.0;
+        icons::glyph(p, pos2(r.left() + S1 + 7.0, y), icon, 13.0, color);
+        w::text(p, pos2(r.left() + S1 + 20.0, y), Align2::LEFT_CENTER, &text, small_strong(), TEXT_2, r.width() - 32.0);
     }
 
     /// Row hover that still counts when the pointer is on a button inside the row.

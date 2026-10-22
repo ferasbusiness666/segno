@@ -9,6 +9,18 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.6
+
+### New
+- The queue is split into groups so you can see what plays next: "Added by you", then the rest of what you pressed play on ("From Road Trip Mix"), then "From your library".
+- The sound fades out when you pause and fades back in when you play. Skipping, seeking and the volume slider are smooth too, with no clicks.
+
+### Better
+- "Add to queue" puts the song right after the current one and the others you added, not at the very end behind a whole album.
+- Animations across the app: rows slide in when a page opens, menus grow from where you click, the sidebar highlight glides between pages, and the song in the player bar changes with a fade.
+- Queue rows glide to their new spot when songs are added, removed or played, and new songs fade in.
+- Every button gives a little press when you click it.
+
 ## 1.1.5
 
 ### New

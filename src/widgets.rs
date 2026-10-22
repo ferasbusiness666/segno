@@ -12,7 +12,28 @@ pub fn hover_press(ui: &Ui, resp: &Response) -> (f32, f32) {
     let ctx = ui.ctx();
     let h = ctx.animate_bool_with_time(resp.id.with("h"), resp.hovered(), T_FAST);
     let p = ctx.animate_bool_with_time(resp.id.with("p"), resp.is_pointer_button_down_on(), 0.07);
-    (h, p)
+    (h, p.max(click_pulse(ui, resp)))
+}
+
+/// A quick click is over before the press shows, so a click also gives a short dip that
+/// springs back: every button answers with a little "press".
+fn click_pulse(ui: &Ui, resp: &Response) -> f32 {
+    const PULSE: f64 = 0.2;
+    let ctx = ui.ctx();
+    let key = resp.id.with("clk");
+    let now = ctx.input(|i| i.time);
+    if resp.clicked() {
+        ctx.data_mut(|d| d.insert_temp(key, now));
+    }
+    let Some(at) = ctx.data(|d| d.get_temp::<f64>(key)) else { return 0.0 };
+    let t = (now - at) / PULSE;
+    if t >= 1.0 {
+        ctx.data_mut(|d| d.remove::<f64>(key));
+        return 0.0;
+    }
+    ctx.request_repaint();
+    let t = t as f32;
+    (1.0 - t) * (1.0 - t)
 }
 
 /// Like `hover_press`, but the pointer counts anywhere over `rect`, buttons on top included.
@@ -284,13 +305,19 @@ pub fn slider(ui: &mut Ui, rect: Rect, id: Id, value: f32, accent_on_hover: bool
 
 /// Sidebar navigation row.
 pub fn nav_item(ui: &mut Ui, icon: &str, label: &str, selected: bool, badge: Option<String>) -> Response {
+    nav_item_ex(ui, icon, label, selected, badge, true)
+}
+
+/// `nav_item`, optionally without its own "selected" background (when a shared highlight
+/// slides between the items instead).
+pub fn nav_item_ex(ui: &mut Ui, icon: &str, label: &str, selected: bool, badge: Option<String>, sel_bg: bool) -> Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 36.0), Sense::click());
     let (h, pr) = hover_press(ui, &resp);
     let sel = ui.ctx().animate_bool_with_time(resp.id.with("sel"), selected, T);
     let p = ui.painter();
-    let bg = lerp_color(with_alpha(RAISED, h), RAISED_2, sel);
-    if h > 0.0 || sel > 0.0 {
+    let bg = if sel_bg { lerp_color(with_alpha(RAISED, h), RAISED_2, sel) } else { with_alpha(RAISED, h * (1.0 - sel)) };
+    if h > 0.0 || (sel > 0.0 && sel_bg) {
         p.rect_filled(rect, R_MD, bg);
     }
     let fg = lerp_color(lerp_color(TEXT_2, TEXT, h), TEXT, sel);

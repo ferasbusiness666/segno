@@ -75,6 +75,9 @@ pub struct DragState {
     pub gap: Option<usize>,
     pub n: usize,
     row_h: f32,
+    /// Rows with a small heading above them (sorted), `head_h` tall. A heading moves with its row.
+    heads: Vec<usize>,
+    head_h: f32,
 }
 
 const SETTLE: f32 = 0.24;
@@ -82,20 +85,43 @@ const FLY: f32 = 0.26;
 const LIFT_IN: f32 = 0.14;
 
 impl DragState {
-    /// How many rows row `i` moves from its own place to make room.
-    fn target_shift(&self, i: usize) -> f32 {
+    /// Headings at or above row `i`, leaving out the carried row's own.
+    fn heads_to(&self, i: usize, skip: Option<usize>) -> f32 {
+        let n = self.heads.partition_point(|&h| h <= i);
+        let skipped = skip.map(|s| s <= i && self.heads.binary_search(&s).is_ok()).unwrap_or(false);
+        (n - skipped as usize) as f32 * self.head_h
+    }
+
+    /// Where row `i` starts (below its heading, if any), from the top of the list.
+    pub fn row_y(&self, i: usize) -> f32 {
+        i as f32 * self.row_h + self.heads_to(i, None)
+    }
+
+    /// Where row `i` goes while a song is carried over the list.
+    fn moved_y(&self, i: usize) -> f32 {
         match (self.hovering, self.own, self.gap) {
             (true, Some(s), Some(t)) => {
-                if i == s {
-                    return 0.0;
-                }
                 let j = if i > s { i - 1 } else { i };
-                let slot = if j >= t { j + 1 } else { j };
-                slot as f32 - i as f32
+                let j = if j >= t { j + 1 } else { j };
+                j as f32 * self.row_h + self.heads_to(i, Some(s))
             }
-            (true, None, Some(t)) => (i >= t) as u8 as f32,
-            _ => 0.0,
+            (true, None, Some(t)) => (i + (i >= t) as usize) as f32 * self.row_h + self.heads_to(i, None),
+            _ => self.row_y(i),
         }
+    }
+
+    /// Where the carried song would sit if dropped at `t` (above row `t`'s heading).
+    fn drop_y(&self, t: usize) -> f32 {
+        let heads = match self.own {
+            Some(s) if t > s => self.heads_to(t, Some(s)),
+            _ => self.heads_to(t.saturating_sub(1), None) * (t > 0) as u8 as f32,
+        };
+        t as f32 * self.row_h + heads
+    }
+
+    /// Whether row `i`'s heading shows (not while its row is being carried).
+    pub fn head_shown(&self, i: usize) -> bool {
+        !self.hidden(i)
     }
 
     /// The row being carried (it's drawn under the pointer instead).
@@ -136,7 +162,26 @@ impl App {
     /// its rows' left and right edges, `top` where row 0 is.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn drag_layout(&mut self, ui: &Ui, list: DragList, key: Id, zone: Rect, rows_x: Rangef, top: f32, row_h: f32, n: usize, takes_others: bool) -> DragState {
-        let mut ds = DragState { list, key, hovering: false, own: None, gap: None, n, row_h };
+        self.drag_layout_with_heads(ui, list, key, zone, rows_x, top, row_h, n, takes_others, Vec::new(), 0.0)
+    }
+
+    /// `drag_layout` for a list with headings between its rows (the queue's groups).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn drag_layout_with_heads(
+        &mut self,
+        ui: &Ui,
+        list: DragList,
+        key: Id,
+        zone: Rect,
+        rows_x: Rangef,
+        top: f32,
+        row_h: f32,
+        n: usize,
+        takes_others: bool,
+        heads: Vec<usize>,
+        head_h: f32,
+    ) -> DragState {
+        let mut ds = DragState { list, key, hovering: false, own: None, gap: None, n, row_h, heads, head_h };
         let Some(lift) = &self.lift else { return ds };
         if !carrying(ui.ctx()) {
             return ds;
@@ -149,16 +194,27 @@ impl App {
         ds.hovering = true;
         let ghost_top = p.y - lift.grab.y.min(row_h);
         let last = if ds.own.is_some() { n.saturating_sub(1) } else { n };
-        let t = (((ghost_top - top) / row_h).round().max(0.0) as usize).min(last);
-        ds.gap = Some(t);
+        // The closest spot (headings push rows down, so it's at most a few rows above a plain
+        // division).
+        let y = ghost_top - top;
+        let est = ((y / row_h).floor().max(0.0) as usize).min(last);
+        let lo = est.saturating_sub(ds.heads.len() + 1);
+        let mut best = (est, f32::MAX);
+        for t in lo..=(est + 1).min(last) {
+            let d = (ds.drop_y(t) - y).abs();
+            if d < best.1 {
+                best = (t, d);
+            }
+        }
+        ds.gap = Some(best.0);
         // In line with this list's rows: same edges, only following the pointer up and down.
         self.drag_aim = Some(Rect::from_x_y_ranges(rows_x, ghost_top..=ghost_top + row_h));
         ds
     }
 
-    /// Where row `i` (at `r` in its own place) is drawn this frame, moved aside to make room.
-    /// `None` while it's in the air (being carried, or still landing after a drop).
-    pub(crate) fn row_rect(&mut self, ui: &Ui, ds: &DragState, i: usize, r: Rect) -> Option<Rect> {
+    /// Where row `i` (at `r` in its own place) is drawn this frame, moved aside to make room,
+    /// and whether to draw it (not while it's in the air: carried, or still landing).
+    pub(crate) fn row_place(&mut self, ui: &Ui, ds: &DragState, i: usize, r: Rect) -> (Rect, bool) {
         if let Some(l) = &mut self.lift {
             // Keep track of where its row is, so a cancelled drag lands back in the right spot
             // even after scrolling.
@@ -168,9 +224,9 @@ impl App {
             }
         }
         if ds.hidden(i) {
-            return None;
+            return (r, false);
         }
-        let target = ds.target_shift(i) * ds.row_h;
+        let target = ds.moved_y(i) - ds.row_y(i);
         let key = (ds.key, i);
         let cur = self.row_shift.get(&key).copied().unwrap_or(0.0);
         let mut shift = 0.0;
@@ -193,10 +249,16 @@ impl App {
         if let Some(s) = &mut self.settle {
             if s.key == ds.key && s.index == i {
                 s.to = Some(r);
-                return None;
+                return (r, false);
             }
         }
-        Some(r)
+        (r, true)
+    }
+
+    /// `row_place` for lists that only need the rows they draw.
+    pub(crate) fn row_rect(&mut self, ui: &Ui, ds: &DragState, i: usize, r: Rect) -> Option<Rect> {
+        let (r, draw) = self.row_place(ui, ds, i, r);
+        draw.then_some(r)
     }
 
     /// Inside a list's scroll area while a song is carried: the mouse wheel still scrolls, and
@@ -272,6 +334,7 @@ impl App {
         }
         // The rows already moved to where the new order puts them.
         self.row_shift.clear();
+        self.flip_hold = now;
     }
 
     /// Moves and paints the lifted row (from the overlays, after every list had its turn).
