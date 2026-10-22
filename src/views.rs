@@ -3,6 +3,7 @@
 
 use crate::store::LockExt;
 use crate::app::{Action, App, DragSongs, Route};
+use crate::drag::DragList;
 use crate::art::{ArtKey, ArtSize};
 use crate::icons;
 use crate::library;
@@ -408,6 +409,9 @@ impl App {
     }
 
     /// A long list with a header, drawn lazily: only the rows on screen are built each frame.
+    /// With `drag`, its songs can be dragged into a new order (and, for a playlist, songs from
+    /// the queue dropped in).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn list_page(
         &mut self,
         ui: &mut Ui,
@@ -415,6 +419,7 @@ impl App {
         header_h: f32,
         rows: usize,
         row_h: f32,
+        drag: Option<DragList>,
         mut header: impl FnMut(&mut App, &mut Ui, Rect),
         mut row: impl FnMut(&mut App, &mut Ui, Rect, usize),
     ) -> f32 {
@@ -423,21 +428,46 @@ impl App {
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
                 let width = ui.available_width();
-                let total = TOPBAR_H + header_h + rows as f32 * row_h + S12 + S6;
-                ui.set_height(total);
                 let origin = ui.max_rect().min;
+                let start = TOPBAR_H + header_h;
+                let rows_x = egui::Rangef::new(origin.x + PAD_X - S2, origin.x + width - (PAD_X - S2));
+                // The part of the list you can see (the top bar covers the top of it).
+                let clip = ui.clip_rect();
+                let visible = Rect::from_min_max(pos2(clip.left(), clip.top() + TOPBAR_H), clip.max);
+                let ds = drag.map(|list| {
+                    let key = Id::new(("list-drag", list));
+                    let takes_others = matches!(list, DragList::Playlist(_));
+                    self.drag_layout(ui, list, key, visible, rows_x, origin.y + start, row_h, rows, takes_others)
+                });
+                let extra = ds.as_ref().map(|d| d.extra()).unwrap_or(0);
+                let total = TOPBAR_H + header_h + (rows + extra) as f32 * row_h + S12 + S6;
+                ui.set_height(total);
                 let hr = Rect::from_min_size(origin + vec2(0.0, TOPBAR_H), vec2(width, header_h));
                 if viewport.min.y < TOPBAR_H + header_h {
                     let mut hu = ui.new_child(egui::UiBuilder::new().max_rect(hr).layout(egui::Layout::top_down(egui::Align::Min)));
                     header(self, &mut hu, hr);
                 }
-                let start = TOPBAR_H + header_h;
+                // One row more on each side: rows sliding aside can come into view.
                 let first = (((viewport.min.y - start) / row_h).floor().max(0.0)) as usize;
                 let last = ((((viewport.max.y - start) / row_h).ceil().max(0.0)) as usize).min(rows);
+                let (first, last) = if ds.is_some() { (first.saturating_sub(1), (last + 1).min(rows)) } else { (first, last) };
                 for i in first..last {
-                    let r = Rect::from_min_size(origin + vec2(PAD_X - S2, start + i as f32 * row_h), vec2(width - (PAD_X - S2) * 2.0, row_h));
+                    let mut r = Rect::from_min_size(pos2(rows_x.min, origin.y + start + i as f32 * row_h), vec2(rows_x.span(), row_h));
+                    let mut faded = false;
+                    if let Some(d) = &ds {
+                        let Some(moved) = self.row_rect(ui, d, i, r) else { continue };
+                        r = moved;
+                        faded = d.away(i);
+                    }
                     let mut ru = ui.new_child(egui::UiBuilder::new().max_rect(r).id_salt(("row", i)));
+                    if faded {
+                        ru.multiply_opacity(0.4);
+                    }
                     row(self, &mut ru, r, i);
+                }
+                if let Some(d) = &ds {
+                    self.drag_scroll(ui, visible);
+                    self.drag_drop(ui, d);
                 }
             });
         out.state.offset.y
@@ -632,60 +662,17 @@ impl App {
             self.actions.push(Action::PlayIds { ids: list.to_vec(), start: i, shuffle: None });
         }
 
-        // Drag: onto a sidebar playlist, or within this playlist to reorder.
+        // Drag: the row lifts out and follows the pointer (drag.rs). Onto a sidebar playlist or
+        // the queue, or within this list to reorder it.
         if resp.drag_started() {
-            egui::DragAndDrop::set_payload(
-                ui.ctx(),
-                DragSongs {
-                    ids: vec![id],
-                    from_playlist: mode.playlist.zip(pl_index),
-                    from_queue: None,
-                    from_songs: mode.reorder.then_some(i),
-                },
-            );
+            egui::DragAndDrop::set_payload(ui.ctx(), DragSongs { ids: vec![id], from_queue: None });
+            let src = match mode.playlist {
+                Some(pid) if pl_index.is_some() => Some((DragList::Playlist(pid), i)),
+                _ if mode.reorder => Some((DragList::Songs, i)),
+                _ => None,
+            };
+            self.lift_song(ui, id, src, rect);
         }
-        if let (Some(pid), Some(idx)) = (mode.playlist, pl_index) {
-            if let Some(d) = resp.dnd_hover_payload::<DragSongs>() {
-                if d.from_playlist.map(|(p, _)| p) == Some(pid) {
-                    let above = ui.input(|i| i.pointer.hover_pos().map(|p| p.y < rect.center().y).unwrap_or(true));
-                    let ly = if above { rect.top() } else { rect.bottom() };
-                    ui.painter().line_segment([pos2(rect.left(), ly), pos2(rect.right(), ly)], Stroke::new(2.0, ACCENT));
-                }
-            }
-            if let Some(d) = resp.dnd_release_payload::<DragSongs>() {
-                if let Some((p, from)) = d.from_playlist {
-                    if p == pid {
-                        let above = ui.input(|i| i.pointer.hover_pos().map(|p| p.y < rect.center().y).unwrap_or(true));
-                        let mut to = if above { idx } else { idx + 1 };
-                        if from < to {
-                            to -= 1;
-                        }
-                        self.actions.push(Action::MoveInPlaylist { pid, from, to });
-                    }
-                }
-            }
-        }
-
-        if mode.reorder {
-            if let Some(d) = resp.dnd_hover_payload::<DragSongs>() {
-                if d.from_songs.is_some() {
-                    let above = ui.input(|i| i.pointer.hover_pos().map(|p| p.y < rect.center().y).unwrap_or(true));
-                    let ly = if above { rect.top() } else { rect.bottom() };
-                    ui.painter().line_segment([pos2(rect.left(), ly), pos2(rect.right(), ly)], Stroke::new(2.0, ACCENT));
-                }
-            }
-            if let Some(d) = resp.dnd_release_payload::<DragSongs>() {
-                if let Some(from) = d.from_songs {
-                    let above = ui.input(|i| i.pointer.hover_pos().map(|p| p.y < rect.center().y).unwrap_or(true));
-                    let mut to = if above { i } else { i + 1 };
-                    if from < to {
-                        to -= 1;
-                    }
-                    self.actions.push(Action::MoveInSongs { from, to });
-                }
-            }
-        }
-        // A grip on hover in lists you can reorder, so it's clear rows can be dragged.
 
         let pl = mode.playlist.zip(pl_index);
         resp.context_menu(|ui| self.song_menu(ui, id, pl));
@@ -757,6 +744,7 @@ impl App {
             188.0,
             n,
             ROW_H,
+            Some(DragList::Songs),
             |app, ui, r| {
                 let p = ui.painter().clone();
                 w::text(&p, pos2(r.left() + PAD_X, r.top() + 22.0), Align2::LEFT_CENTER, "Songs", h1(), TEXT, 400.0);
@@ -865,6 +853,7 @@ impl App {
             96.0,
             rows,
             row_h,
+            None,
             |_app, ui, r| {
                 let p = ui.painter();
                 w::text(p, pos2(r.left() + PAD_X, r.top() + 22.0), Align2::LEFT_CENTER, "Albums", h1(), TEXT, 400.0);
@@ -904,6 +893,7 @@ impl App {
             96.0,
             rows,
             row_h,
+            None,
             |_app, ui, r| {
                 let p = ui.painter();
                 w::text(p, pos2(r.left() + PAD_X, r.top() + 22.0), Align2::LEFT_CENTER, "Artists", h1(), TEXT, 400.0);
@@ -1212,6 +1202,7 @@ impl App {
             352.0,
             n,
             ROW_H,
+            None,
             |app, ui, r| {
                 app.detail_header(ui, r, "Album", &t2, &meta, art, false, &ids2, None, false);
                 // The artist name in the meta line opens the artist.
@@ -1246,6 +1237,7 @@ impl App {
             352.0,
             n,
             ROW_H,
+            None,
             |app, ui, r| {
                 app.detail_header(ui, r, "Artist", &n2, &meta, art, true, &ids2, None, false);
                 let ch = Rect::from_min_size(pos2(r.left(), r.bottom() - 32.0), vec2(r.width(), 32.0));
@@ -1314,6 +1306,7 @@ impl App {
             header_h,
             n,
             ROW_H,
+            pid.map(DragList::Playlist),
             |app, ui, r| {
                 let hr = Rect::from_min_size(r.min, vec2(r.width(), 352.0));
                 let mut hu = ui.new_child(egui::UiBuilder::new().max_rect(hr));

@@ -42,11 +42,11 @@ The pitch: **one app for your own music and online music. Light, fast, free, no 
 Rule: animations can cost a bit more battery, but RAM must stay light (now about 20–40 MB).
 
 ### Dragging songs
-- ⬜ **Hold the song itself**: when you drag a song, the row lifts out of the list (bigger, shadow, "closer to you") instead of the small pink tag
-- ⬜ **Stays in line**: while reordering, the lifted row only moves up and down with the list, the other rows slide apart to make room
-- ⬜ **Flies to the queue**: drag it over the queue panel and it flies over and resizes to fit the panel (with a little motion blur), then lines up there
-- ⬜ **Smooth drop**: rows animate into their new place instead of jumping
-- ⬜ **Scroll while dragging**: holding a song near the top or bottom of any list scrolls it (works in the queue, not in Songs and playlists yet)
+- ✅ **Hold the song itself**: when you drag a song, the row lifts out of the list (bigger, shadow, "closer to you") instead of the small pink tag (1.1.5)
+- ✅ **Stays in line**: while reordering, the lifted row only moves up and down with the list, the other rows slide apart to make room (1.1.5)
+- ✅ **Flies to the queue**: drag it over the queue panel and it flies over and resizes to fit the panel (with a little motion blur), then lines up there (1.1.5)
+- ✅ **Smooth drop**: rows animate into their new place instead of jumping; let go nowhere and it flies back (1.1.5)
+- ✅ **Scroll while dragging**: the mouse wheel works while holding a song, and holding it near the top or bottom of any list scrolls it (1.1.5)
 
 ### Queue
 - ⬜ **Clear what plays next**: make it obvious what comes after the current song, what you added by hand, and what Segno adds from your library

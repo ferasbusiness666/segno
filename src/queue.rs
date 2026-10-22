@@ -3,6 +3,7 @@
 
 use crate::app::{Action, App, DragSongs};
 use crate::art::ArtSize;
+use crate::drag::DragList;
 use crate::icons;
 use crate::player::QItem;
 use crate::store::Repeat;
@@ -32,21 +33,27 @@ impl App {
     /// The queue inside `list_r`. `show_current` lists the playing song first (the side panel);
     /// the Now Playing views already show it big. `salt` keeps ids apart between places.
     pub(crate) fn queue_list(&mut self, ui: &mut Ui, list_r: Rect, show_current: bool, salt: &str) {
+        let key = Id::new((salt, "q-drag"));
         let Some(cur) = self.ps.current().cloned() else {
+            // Songs dropped here start playing.
+            let ds = self.drag_layout(ui, DragList::Queue, key, list_r, list_r.x_range(), list_r.top() + S8, ROW, 0, true);
+            let hl = ui.ctx().animate_bool_with_time(key.with("empty-h"), ds.hovering, T_FAST);
+            if hl > 0.0 {
+                ui.painter().rect_filled(list_r.shrink(S1), R_LG, with_alpha(ACCENT, 0.10 * hl));
+                ui.painter().rect_stroke(list_r.shrink(S1), R_LG, egui::Stroke::new(1.0, with_alpha(ACCENT, 0.5 * hl)), egui::StrokeKind::Inside);
+            }
             ui.add_space(S8);
             w::empty_state(ui, icons::LIST_MUSIC, "Nothing queued", "Play a song, or drag songs here to line them up.", None);
+            self.drag_drop(ui, &ds);
             return;
         };
-        // Registered first so the rows sit on top of it; it only takes drops the rows didn't.
-        let drop_resp = ui.interact(list_r, Id::new((salt, "q-drop")), Sense::hover());
-        let dragging_in = egui::DragAndDrop::payload::<DragSongs>(ui.ctx()).map(|d| d.from_queue.is_none()).unwrap_or(false);
         let p = ui.painter().clone();
         let mut y = list_r.top();
         if show_current {
             w::section_label(&p, pos2(list_r.left() + S1, y + 10.0), "Now playing");
             y += 22.0;
             let r = Rect::from_min_size(pos2(list_r.left(), y), vec2(list_r.width(), ROW));
-            self.queue_row(ui, r, &cur, self.ps.index, true, salt);
+            self.queue_row(ui, r, &cur, self.ps.index, true, salt, false);
             y += ROW + S3;
         }
         let upcoming: Vec<(usize, QItem)> = self.ps.queue.iter().enumerate().skip(self.ps.index + 1).map(|(i, q)| (i, q.clone())).collect();
@@ -86,8 +93,6 @@ impl App {
         let auto = if self.ps.repeat == Repeat::Off { self.autoplay_preview(5) } else { Vec::new() };
         let auto_h = if auto.is_empty() { 0.0 } else { 34.0 + auto.len() as f32 * ROW };
         let end_h = if n == 0 && auto.is_empty() { 44.0 } else { 0.0 };
-        let total = n as f32 * ROW + auto_h + end_h + S2;
-        let dragging = egui::DragAndDrop::has_payload_of_type::<DragSongs>(ui.ctx());
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(body).layout(egui::Layout::top_down(egui::Align::Min)));
         egui::ScrollArea::vertical()
             .id_salt((salt, "q-scroll"))
@@ -96,21 +101,27 @@ impl App {
                 let top = ui.max_rect().top();
                 let left = ui.max_rect().left();
                 let wdt = ui.max_rect().width();
+                // Carrying a song over the queue: the rows part where it would go.
+                let ds = self.drag_layout(ui, DragList::Queue, key, list_r, egui::Rangef::new(left, left + wdt), top, ROW, n, true);
+                let total = (n + ds.extra()) as f32 * ROW + auto_h + end_h + S2;
                 ui.set_min_height(total);
                 // Only the rows on screen are built, so a queue of thousands stays cheap.
-                let first = ((vp.min.y / ROW).floor().max(0.0) as usize).min(n);
-                let last = ((vp.max.y / ROW).ceil().max(0.0) as usize).min(n);
+                let first = ((vp.min.y / ROW).floor().max(0.0) as usize).saturating_sub(1).min(n);
+                let last = (((vp.max.y / ROW).ceil().max(0.0) as usize) + 1).min(n);
                 for (qi, q) in &upcoming[first..last] {
                     let k = *qi - (self.ps.index + 1);
                     let r = Rect::from_min_size(pos2(left, top + k as f32 * ROW), vec2(wdt, ROW));
-                    self.queue_row(ui, r, q, *qi, false, salt);
+                    let Some(r) = self.row_rect(ui, &ds, k, r) else { continue };
+                    self.queue_row(ui, r, q, *qi, false, salt, ds.away(k));
                 }
                 let mut y = top + n as f32 * ROW;
                 if n == 0 && auto.is_empty() {
                     w::text(ui.painter(), pos2(left + S1, y + 18.0), Align2::LEFT_CENTER, "That's the last song.", small(), TEXT_3, wdt);
                 }
                 if !auto.is_empty() {
-                    y += 8.0;
+                    // The library songs after the queue make room too.
+                    let r = Rect::from_min_size(pos2(left, y), vec2(wdt, 1.0));
+                    y = self.row_rect(ui, &ds, n, r).unwrap_or(r).top() + 8.0;
                     let t = if n == 0 { "From your library" } else { "Then from your library" };
                     w::text(ui.painter(), pos2(left + S1, y + 12.0), Align2::LEFT_CENTER, t, small_strong(), TEXT_3, wdt);
                     y += 26.0;
@@ -122,37 +133,9 @@ impl App {
                         y += ROW;
                     }
                 }
-                // Dragging near the top or bottom edge scrolls the list.
-                if dragging {
-                    if let Some(pp) = ui.ctx().pointer_hover_pos() {
-                        let clip = ui.clip_rect();
-                        if clip.x_range().contains(pp.x) {
-                            let edge = 36.0;
-                            let up = (clip.top() + edge - pp.y).clamp(0.0, edge) / edge;
-                            let down = (pp.y - (clip.bottom() - edge)).clamp(0.0, edge) / edge;
-                            if (up > 0.0 && pp.y >= clip.top() - 8.0) || (down > 0.0 && pp.y <= clip.bottom() + 8.0) {
-                                ui.scroll_with_delta(vec2(0.0, (up - down) * 14.0));
-                                ui.ctx().request_repaint();
-                            }
-                        }
-                    }
-                }
+                self.drag_scroll(ui, ui.clip_rect());
+                self.drag_drop(ui, &ds);
             });
-
-        if dragging_in {
-            let hover = drop_resp.contains_pointer();
-            let hr = Rect::from_min_max(pos2(body.left(), body.bottom() - 48.0), body.max);
-            let hl = ui.ctx().animate_bool_with_time(Id::new((salt, "q-drop-h")), hover, T_FAST);
-            ui.painter().rect_filled(hr, R_MD, lerp_color(RAISED, with_alpha(ACCENT, 0.22), hl));
-            ui.painter().rect_stroke(hr, R_MD, egui::Stroke::new(1.0, with_alpha(ACCENT, 0.4 + 0.6 * hl)), egui::StrokeKind::Inside);
-            icons::glyph(ui.painter(), pos2(hr.left() + 24.0, hr.center().y), icons::LIST_END, 16.0, ACCENT);
-            w::text(ui.painter(), pos2(hr.left() + 44.0, hr.center().y), Align2::LEFT_CENTER, "Drop to add to the end", body_strong(), TEXT, hr.width() - 56.0);
-        }
-        if let Some(d) = drop_resp.dnd_release_payload::<DragSongs>() {
-            if d.from_queue.is_none() {
-                self.actions.push(Action::AddToQueue(d.ids.clone()));
-            }
-        }
     }
 
     /// Row hover that still counts when the pointer is on a button inside the row.
@@ -189,10 +172,11 @@ impl App {
         resp.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip)
     }
 
-    fn queue_row(&mut self, ui: &Ui, rect: Rect, q: &QItem, index: usize, current: bool, salt: &str) {
+    fn queue_row(&mut self, ui: &Ui, rect: Rect, q: &QItem, index: usize, current: bool, salt: &str, away: bool) {
         let id = Id::new((salt, "q-row", q.uid));
         let resp = ui.interact(rect, id, if current { Sense::click() } else { Sense::click_and_drag() });
-        let held = egui::DragAndDrop::payload::<DragSongs>(ui.ctx()).map(|d| d.from_queue == Some(index)).unwrap_or(false);
+        // Carried out of the queue: it stays faded in its place until it's dropped.
+        let held = away;
         let h = Self::row_hover(ui, rect, id);
         let p = ui.painter().clone();
         if held {
@@ -226,32 +210,12 @@ impl App {
             w::text(&p, pos2(rect.right() - S3, rect.center().y), Align2::RIGHT_CENTER, &fmt_time(dur), small(), with_alpha(TEXT_3, dim), 60.0);
         }
         if !current && resp.drag_started() {
-            egui::DragAndDrop::set_payload(ui.ctx(), DragSongs { ids: vec![q.id], from_playlist: None, from_queue: Some(index), from_songs: None });
+            egui::DragAndDrop::set_payload(ui.ctx(), DragSongs { ids: vec![q.id], from_queue: Some(index) });
+            let k = index.saturating_sub(self.ps.index + 1);
+            self.lift_song(ui, q.id, Some((DragList::Queue, k)), rect);
         }
         if !current && resp.hovered() && !held {
             ui.ctx().set_cursor_icon(CursorIcon::Grab);
-        }
-        // Drop line: songs dragged inside the queue move; songs from elsewhere are inserted.
-        let above = !current && ui.input(|i| i.pointer.hover_pos().map(|p| p.y < rect.center().y).unwrap_or(true));
-        if let Some(d) = resp.dnd_hover_payload::<DragSongs>() {
-            let same = d.from_queue == Some(index) || (d.from_queue == Some(index + 1) && !above) || (index > 0 && d.from_queue == Some(index - 1) && above);
-            if !same {
-                let y = if above { rect.top() } else { rect.bottom() };
-                p.line_segment([pos2(rect.left() + S2, y), pos2(rect.right() - S2, y)], egui::Stroke::new(2.0, ACCENT));
-                p.circle_filled(pos2(rect.left() + S2, y), 3.5, ACCENT);
-            }
-        }
-        if let Some(d) = resp.dnd_release_payload::<DragSongs>() {
-            let to = if above { index } else { index + 1 };
-            match d.from_queue {
-                Some(from) => {
-                    let to = if from < to { to - 1 } else { to };
-                    if to != from {
-                        self.actions.push(Action::MoveQueue { from, to });
-                    }
-                }
-                None => self.actions.push(Action::InsertInQueue { at: to, ids: d.ids.clone() }),
-            }
         }
         if resp.double_clicked() {
             self.actions.push(if current { Action::Toggle } else { Action::JumpTo(index) });
@@ -302,7 +266,8 @@ impl App {
             w::text(&p, pos2(rect.right() - S3, rect.center().y), Align2::RIGHT_CENTER, &fmt_time(info.duration), small(), TEXT_3, 60.0);
         }
         if resp.drag_started() {
-            egui::DragAndDrop::set_payload(ui.ctx(), DragSongs { ids: vec![song], from_playlist: None, from_queue: None, from_songs: None });
+            egui::DragAndDrop::set_payload(ui.ctx(), DragSongs { ids: vec![song], from_queue: None });
+            self.lift_song(ui, song, None, rect);
         }
         if resp.double_clicked() {
             self.actions.push(Action::PlayFromAutoplay(song));

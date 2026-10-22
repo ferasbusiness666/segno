@@ -12,6 +12,7 @@ mod queue;
 mod nowplaying;
 mod foryou;
 mod changelog;
+mod drag;
 mod stream;
 mod store;
 mod theme;

@@ -176,6 +176,7 @@ impl App {
             header_h,
             rows,
             row_h,
+            None,
             |app, ui, r| {
                 let p = ui.painter().clone();
                 w::text(&p, pos2(r.left() + PAD_X, r.top() + 22.0), Align2::LEFT_CENTER, "For you", h1(), TEXT, r.width() - 260.0);

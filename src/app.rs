@@ -13,7 +13,7 @@ use crate::update::{self, Updater};
 use crate::ytdlp::{self, Yt, YtItem};
 use crate::icons;
 use egui::{pos2, vec2, Align2, Color32, CursorIcon, Id, Key, Rect, Response, Sense, Stroke, Ui, ViewportCommand};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -67,6 +67,8 @@ pub enum Action {
     ToggleLove(u64),
     NewPlaylist { with: Vec<u64> },
     AddToPlaylist { pid: u64, ids: Vec<u64> },
+    /// Dropped into a playlist at a spot (`at` is the entry it goes before; `None` = the end).
+    InsertInPlaylist { pid: u64, at: Option<usize>, ids: Vec<u64> },
     RemoveFromPlaylist { pid: u64, index: usize },
     MoveInPlaylist { pid: u64, from: usize, to: usize },
     MoveInSongs { from: usize, to: usize },
@@ -131,14 +133,11 @@ pub enum Dialog {
     DownloadRights,
 }
 
-/// Drag payload: songs being dragged (onto a playlist in the sidebar, or within a playlist).
+/// Drag payload: the songs being dragged. Where they came from and how the row moves is in drag.rs.
 #[derive(Clone)]
 pub struct DragSongs {
     pub ids: Vec<u64>,
-    pub from_playlist: Option<(u64, usize)>,
     pub from_queue: Option<usize>,
-    /// Position in the Songs list (reordering the library by hand).
-    pub from_songs: Option<usize>,
 }
 
 /// What the player bar / Now Playing / media overlay show for a song, whether it's in the library
@@ -249,6 +248,12 @@ pub struct App {
     pub dialog: Option<Dialog>,
     /// The "What's new" window (after an update, or opened from Settings).
     pub whats_new: Option<crate::changelog::WhatsNew>,
+    /// The song being dragged, and the animations around it (see drag.rs).
+    pub lift: Option<crate::drag::Lift>,
+    pub drag_aim: Option<Rect>,
+    pub settle: Option<crate::drag::Settle>,
+    pub fly: Option<crate::drag::Fly>,
+    pub row_shift: HashMap<(Id, usize), f32>,
     /// A download waiting for the "only download what you're allowed to" answer.
     pending_download: Option<Action>,
     pub rename: Option<(u64, String, bool)>,
@@ -371,6 +376,11 @@ impl App {
             toasts: Vec::new(),
             dialog: None,
             whats_new: None,
+            lift: None,
+            drag_aim: None,
+            settle: None,
+            fly: None,
+            row_shift: HashMap::new(),
             pending_download: None,
             rename: None,
             selected: None,
@@ -479,6 +489,43 @@ impl App {
 
     pub fn current_id(&self) -> Option<u64> {
         self.ps.current().map(|q| q.id)
+    }
+
+    /// Put songs in a playlist: before entry `at`, or at the end. Songs already in it stay put.
+    fn add_to_playlist(&mut self, pid: u64, at: Option<usize>, ids: Vec<u64>) {
+        // Files by path; songs that play from their site as stream entries.
+        let mut paths: Vec<PathBuf> = Vec::new();
+        let mut streams: Vec<YtItem> = Vec::new();
+        for i in &ids {
+            if let Some(t) = self.lib.get(*i) {
+                paths.push(t.path.clone());
+            } else if let Some(tr) = self.transient.get(i) {
+                paths.push(store::stream_entry(&tr.item.id));
+                streams.push(tr.item.clone());
+            }
+        }
+        let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) else { return };
+        let mut added = 0;
+        for it in streams {
+            p.streams.insert(it.id.clone(), it);
+        }
+        let mut at = at.map(|a| a.min(p.tracks.len()));
+        for path in paths {
+            if p.tracks.contains(&path) {
+                continue;
+            }
+            match at.as_mut() {
+                Some(a) => {
+                    p.tracks.insert(*a, path);
+                    *a += 1;
+                }
+                None => p.tracks.push(path),
+            }
+            added += 1;
+        }
+        let name = p.name.clone();
+        store::save_playlists(&self.playlists);
+        self.toast(if added == 0 { format!("Already in “{name}”") } else { format!("Added to “{name}”") });
     }
 
     pub fn info_for(&self, id: u64) -> Option<NowInfo> {
@@ -1131,38 +1178,8 @@ impl App {
                     self.toast(format!("Added to “{name}”"));
                 }
             }
-            Action::AddToPlaylist { pid, ids } => {
-                // Files by path; songs that play from their site as stream entries.
-                let mut paths: Vec<PathBuf> = Vec::new();
-                let mut streams: Vec<YtItem> = Vec::new();
-                for i in &ids {
-                    if let Some(t) = self.lib.get(*i) {
-                        paths.push(t.path.clone());
-                    } else if let Some(tr) = self.transient.get(i) {
-                        paths.push(store::stream_entry(&tr.item.id));
-                        streams.push(tr.item.clone());
-                    }
-                }
-                if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
-                    let mut added = 0;
-                    for it in streams {
-                        p.streams.insert(it.id.clone(), it);
-                    }
-                    for path in paths {
-                        if !p.tracks.contains(&path) {
-                            p.tracks.push(path);
-                            added += 1;
-                        }
-                    }
-                    let name = p.name.clone();
-                    store::save_playlists(&self.playlists);
-                    self.toast(if added == 0 {
-                        format!("Already in “{name}”")
-                    } else {
-                        format!("Added to “{name}”")
-                    });
-                }
-            }
+            Action::AddToPlaylist { pid, ids } => self.add_to_playlist(pid, None, ids),
+            Action::InsertInPlaylist { pid, at, ids } => self.add_to_playlist(pid, at, ids),
             Action::RemoveFromPlaylist { pid, index } => {
                 if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
                     if index < p.tracks.len() {
@@ -2453,22 +2470,8 @@ impl App {
             }
         }
 
-        // Drag ghost
-        if let Some(d) = egui::DragAndDrop::payload::<DragSongs>(&ctx) {
-            if let Some(pos) = ctx.pointer_interact_pos() {
-                let label = match d.ids.first().and_then(|id| self.lib.get(*id)) {
-                    Some(t) if d.ids.len() == 1 => t.title.clone(),
-                    _ => format!("{} songs", d.ids.len()),
-                };
-                let layer = egui::LayerId::new(egui::Order::Tooltip, Id::new("drag-ghost"));
-                let p = ctx.layer_painter(layer);
-                let tw = w::text_width(ui, &label, body_strong()).min(260.0);
-                let r = Rect::from_min_size(pos + vec2(14.0, 10.0), vec2(tw + 24.0, 32.0));
-                p.rect_filled(r, 16.0, ACCENT);
-                w::text(&p, r.center(), Align2::CENTER_CENTER, &label, body_strong(), ON_ACCENT, tw);
-                ctx.set_cursor_icon(CursorIcon::Grabbing);
-            }
-        }
+        // The song being dragged (lifted row), and its landing.
+        self.draw_drag(&ctx);
 
         if self.dialog.is_none() {
             self.whats_new_window(&ctx);

@@ -9,6 +9,17 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.5
+
+### New
+- Dragging a song now lifts the row itself out of the list. It follows your mouse and the other songs slide apart to make room.
+- Drag a song over the queue and it flies across and lines up there. Drop it exactly where you want it to play.
+- Drag songs from the queue into a playlist, at any spot.
+
+### Better
+- While you hold a song, the mouse wheel still scrolls, and holding it near the top or bottom of a list scrolls too. This works in Songs and playlists now, not only the queue.
+- Dropped songs glide into their new place. Let go somewhere that doesn't take songs and it flies back.
+
 ## 1.1.4
 
 ### New
