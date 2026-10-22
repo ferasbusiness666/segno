@@ -98,7 +98,7 @@ GitHub builds the exe for you:
 
 1. Raise `version` in `Cargo.toml` (for example `1.0.0` → `1.0.1`) and push.
 2. On GitHub, open **Actions → Build → Run workflow**, tick **Publish a release**, and press **Run workflow**.
-3. In about 10 minutes the release is up with `Segno.exe` attached. Everyone's Segno picks it up within a day.
+3. In about 10 minutes the release is up with `Segno.exe` attached. Everyone's Segno picks it up within a few hours.
 
 Pushing a tag like `v1.0.1` does the same thing.
 

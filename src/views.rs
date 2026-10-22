@@ -2070,7 +2070,7 @@ impl App {
                             }
                         });
                         ui.add_space(S3);
-                        if toggle_row(ui, "Update automatically", "Checks once a day and downloads new versions in the background.", &mut auto) {
+                        if toggle_row(ui, "Update automatically", "Checks every few hours and downloads new versions in the background.", &mut auto) {
                             app.actions.push(Action::SetAutoUpdate(auto));
                         }
                     });

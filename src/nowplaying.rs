@@ -179,8 +179,10 @@ impl App {
 
         let body = Rect::from_min_max(pos2(rect.left() + PAD_X, rect.top() + TOPBAR_H), pos2(rect.right() - PAD_X, rect.bottom() - S5));
         let q_w = (body.width() * 0.4).clamp(280.0, 400.0);
-        let show_q = self.np_queue && body.width() - q_w - S6 >= 300.0;
-        let stage = if show_q { Rect::from_min_max(body.min, pos2(body.right() - q_w - S6, body.bottom())) } else { body };
+        let fits = body.width() - q_w - S6 >= 300.0;
+        // Up next slides in from the right; the record moves over to make room.
+        let qt = egui::emath::easing::cubic_out(ui.ctx().animate_bool_with_time(Id::new("np-q-open"), self.np_queue && fits, T_SLOW));
+        let stage = Rect::from_min_max(body.min, pos2(body.right() - (q_w + S6) * qt, body.bottom()));
         let info_h = 120.0;
         let s = ((stage.width() - S4) / SPREAD).min(stage.height() - info_h - S6).clamp(96.0, 420.0);
         let top = stage.top() + ((stage.height() - s - info_h) / 2.0).max(S2);
@@ -189,14 +191,15 @@ impl App {
         let bottom = self.song_titles(ui, &t, pos2(c.x, top + s + S8), stage.width(), 26.0);
         self.song_actions(ui, &t, pos2(c.x, bottom + 28.0), "np");
 
-        if show_q {
-            let qr = Rect::from_min_max(pos2(body.right() - q_w, body.top() + S1), body.max);
-            p.rect_filled(qr, R_LG, with_alpha(Color32::BLACK, 0.28));
-            p.rect_stroke(qr, R_LG, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.05)), egui::StrokeKind::Inside);
+        if qt > 0.01 {
+            let qr = Rect::from_min_max(pos2(body.right() - q_w, body.top() + S1), body.max).translate(vec2((1.0 - qt) * (q_w + PAD_X + S4), 0.0));
+            p.rect_filled(qr, R_LG, with_alpha(Color32::BLACK, 0.28 * qt));
+            p.rect_stroke(qr, R_LG, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.05 * qt)), egui::StrokeKind::Inside);
             let inner = qr.shrink2(vec2(S3, S4));
-            w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), TEXT, inner.width());
+            w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), with_alpha(TEXT, qt), inner.width());
             let lr = Rect::from_min_max(pos2(inner.left(), inner.top() + 34.0), inner.max);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).layout(egui::Layout::top_down(egui::Align::Min)));
+            child.multiply_opacity(qt);
             self.queue_list(&mut child, lr, false, "np");
         }
         (0.0, String::new())
@@ -345,8 +348,10 @@ impl App {
         let pad = (full.height() * 0.06).clamp(S6, 64.0);
         let area = full.shrink(pad);
         let q_w = (full.width() * 0.3).clamp(320.0, 440.0);
-        let show_q = self.imm_queue && area.width() - q_w - pad >= 420.0;
-        let stage = if show_q { Rect::from_min_max(area.min, pos2(area.right() - q_w - pad, area.bottom())) } else { area };
+        let fits = area.width() - q_w - pad >= 420.0;
+        // Up next slides in from the right; the record moves over to make room.
+        let qt = egui::emath::easing::cubic_out(ctx.animate_bool_with_time(Id::new("imm-q-open"), self.imm_queue && fits, T_SLOW));
+        let stage = Rect::from_min_max(area.min, pos2(area.right() - (q_w + pad) * qt, area.bottom()));
 
         // Top corners: Up next and leave full screen.
         if ch > 0.02 {
@@ -372,8 +377,12 @@ impl App {
             return;
         };
 
-        let info_h = 230.0;
-        let s = (stage.width() / SPREAD).min(stage.height() - info_h - S6).clamp(120.0, 560.0);
+        // Record + title + controls sit together in the middle. When the controls fade out,
+        // the record and title glide down to the middle on their own (and back up with them).
+        const WITH_CONTROLS: f32 = 230.0;
+        const TITLE_ONLY: f32 = 104.0;
+        let s = (stage.width() / SPREAD).min(stage.height() - WITH_CONTROLS - S6).clamp(120.0, 560.0);
+        let info_h = egui::lerp(TITLE_ONLY..=WITH_CONTROLS, egui::emath::easing::cubic_in_out(ch));
         let top = stage.top() + ((stage.height() - s - info_h) / 2.0).max(0.0);
         let c = pos2(stage.center().x, top + s / 2.0);
         self.draw_record(ui, c, s, &t, angle);
@@ -383,7 +392,9 @@ impl App {
         // Seek bar, times, then the transport row with love on the left and volume on the right.
         let cw = (s * SPREAD).clamp(360.0, 620.0).min(stage.width());
         let mut cu = ui.new_child(egui::UiBuilder::new().max_rect(full).id_salt("imm-controls"));
-        cu.multiply_opacity(ch);
+        // Squared: the controls show up once the record has mostly moved up for them, and
+        // fade first when they hide.
+        cu.multiply_opacity(ch * ch);
         if ch > 0.02 {
             let sy = tb + 30.0;
             let seek = Rect::from_center_size(pos2(c.x, sy), vec2(cw, 12.0));
@@ -410,14 +421,15 @@ impl App {
             }
         }
 
-        if show_q {
-            let qr = Rect::from_min_max(pos2(area.right() - q_w, area.top() + 56.0), area.max);
-            p.rect_filled(qr, 16.0, with_alpha(Color32::BLACK, 0.34));
-            p.rect_stroke(qr, 16.0, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.06)), egui::StrokeKind::Inside);
+        if qt > 0.01 {
+            let qr = Rect::from_min_max(pos2(area.right() - q_w, area.top() + 56.0), area.max).translate(vec2((1.0 - qt) * (q_w + pad + S6), 0.0));
+            p.rect_filled(qr, 16.0, with_alpha(Color32::BLACK, 0.34 * qt));
+            p.rect_stroke(qr, 16.0, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.06 * qt)), egui::StrokeKind::Inside);
             let inner = qr.shrink2(vec2(S3, S4));
-            w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), TEXT, inner.width());
+            w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), with_alpha(TEXT, qt), inner.width());
             let lr = Rect::from_min_max(pos2(inner.left(), inner.top() + 34.0), inner.max);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).id_salt("imm-q").layout(egui::Layout::top_down(egui::Align::Min)));
+            child.multiply_opacity(qt);
             self.queue_list(&mut child, lr, false, "imm");
             if ui.rect_contains_pointer(qr) {
                 self.imm_active = now;

@@ -258,6 +258,82 @@ pub fn style_title_bar(_hwnd: isize, _bg: [u8; 3], _text: [u8; 3]) {
     }
 }
 
+/// Where the window was before it filled the screen, to put it back exactly.
+#[cfg(windows)]
+pub struct SavedWindow {
+    style: isize,
+    placement: windows_sys::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT,
+}
+#[cfg(not(windows))]
+pub struct SavedWindow;
+
+/// Fill the screen without switching the display to full-screen mode (that switch is what
+/// makes the screen flash): drop the window frame and cover the monitor the window is on.
+/// None if it couldn't (the caller then uses the normal full screen).
+pub fn enter_fullscreen(_hwnd: isize) -> Option<SavedWindow> {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, GetWindowPlacement, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED,
+            SWP_NOOWNERZORDER, WINDOWPLACEMENT, WS_OVERLAPPEDWINDOW,
+        };
+        let hwnd = _hwnd as windows_sys::Win32::Foundation::HWND;
+        let mut placement: WINDOWPLACEMENT = std::mem::zeroed();
+        placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+        if GetWindowPlacement(hwnd, &mut placement) == 0 {
+            return None;
+        }
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut mi) == 0 {
+            return None;
+        }
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_OVERLAPPEDWINDOW as isize));
+        let r = mi.rcMonitor;
+        // One pixel taller than the screen: an OpenGL window exactly the size of the screen
+        // gets switched to exclusive full screen by Windows, and that flashes black.
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            r.left,
+            r.top,
+            r.right - r.left,
+            r.bottom - r.top + 1,
+            SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+        );
+        Some(SavedWindow { style, placement })
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Put the window back where and how it was before `enter_fullscreen`.
+pub fn leave_fullscreen(_hwnd: isize, _saved: &SavedWindow) {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOOWNERZORDER,
+            SWP_NOSIZE, SWP_NOZORDER,
+        };
+        let hwnd = _hwnd as windows_sys::Win32::Foundation::HWND;
+        SetWindowLongPtrW(hwnd, GWL_STYLE, _saved.style);
+        SetWindowPlacement(hwnd, &_saved.placement);
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+        );
+    }
+}
+
 /// Bring the window to the front (used when the tray icon is clicked).
 pub fn bring_to_front(_hwnd: isize) {
     #[cfg(windows)]

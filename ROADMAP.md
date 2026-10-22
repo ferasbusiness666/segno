@@ -50,16 +50,16 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 
 ### Queue
 - ⬜ **Clear what plays next**: make it obvious what comes after the current song, what you added by hand, and what Segno adds from your library
-- ⬜ **Queue panel slides in from the right** everywhere it opens
+- ✅ **Queue panel slides in from the right** everywhere it opens (1.1.3)
 
 ### Full screen
-- ⬜ **No flicker** when going in and out of full screen (use a borderless window that fills the screen instead of the system full-screen switch)
-- ⬜ **Re-center when controls hide**: record and song info move to the middle when the controls fade, and back up smoothly when they return
+- ✅ **No flicker** when going in and out of full screen: a borderless window that fills the screen, plus a quick fade (1.1.3)
+- ✅ **Re-center when controls hide**: record and song info glide to the middle when the controls fade, and back up when they return (1.1.3)
 - ⬜ **Lyrics spot**: when synced lyrics are on, they sit under the record and song title (see 1.2)
 
 ### General
 - ⬜ **Better animations across the app**: page changes, hovers, panels, lists
-- ⬜ **Check for updates more often**: every few hours instead of once a day (a check is a few KB)
+- ✅ **Check for updates more often**: every 3 hours instead of once a day (1.1.3)
 
 ---
 

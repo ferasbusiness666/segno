@@ -220,6 +220,10 @@ pub struct App {
     pub queue_open: bool,
     /// Full-screen Now Playing.
     pub immersive: bool,
+    /// When full screen was last turned on or off (for the fade between the two views).
+    pub imm_since: f64,
+    /// The window as it was before filling the screen (Windows: borderless, no mode switch).
+    fs_saved: Option<platform::SavedWindow>,
     /// Up next beside the record, on the Now Playing page and in full screen.
     pub np_queue: bool,
     pub imm_queue: bool,
@@ -343,6 +347,8 @@ impl App {
             link_pending: None,
             queue_open: false,
             immersive: false,
+            imm_since: -10.0,
+            fs_saved: None,
             np_queue: true,
             imm_queue: false,
             vinyl_angle: 0.0,
@@ -729,7 +735,7 @@ impl App {
     }
 
     fn remember_window(&mut self) {
-        if self.mini {
+        if self.mini || self.immersive {
             return;
         }
         let (size, maxed) = self.ctx.input(|i| (i.viewport().inner_rect.map(|r| r.size()), i.viewport().maximized));
@@ -927,6 +933,7 @@ impl App {
     }
 
     fn hide_to_tray(&mut self, ctx: &egui::Context) {
+        self.set_immersive(ctx, false);
         self.save_all();
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
         self.visible = false;
@@ -1422,10 +1429,7 @@ impl App {
                 }
             }
             Action::ToggleMini => {
-                if self.immersive {
-                    self.immersive = false;
-                    ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
-                }
+                self.set_immersive(ctx, false);
                 self.toggle_mini(ctx)
             }
             Action::ToggleQueue => {
@@ -1440,9 +1444,8 @@ impl App {
                 if self.mini {
                     self.toggle_mini(ctx);
                 }
-                self.immersive = !self.immersive;
-                ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.immersive));
-                self.imm_active = ctx.input(|i| i.time);
+                let on = !self.immersive;
+                self.set_immersive(ctx, on);
             }
             Action::SetCloseToTray(v) => {
                 self.settings.close_to_tray = v;
@@ -1508,6 +1511,47 @@ impl App {
                 self.dialog = None;
                 self.hide_to_tray(ctx);
             }
+        }
+    }
+
+    /// Full-screen Now Playing on or off. On Windows the window just grows to cover the
+    /// screen without its frame, so the display never switches modes (no flash).
+    fn set_immersive(&mut self, ctx: &egui::Context, on: bool) {
+        if on == self.immersive {
+            return;
+        }
+        self.immersive = on;
+        let now = ctx.input(|i| i.time);
+        self.imm_since = now;
+        self.imm_active = now;
+        match (on, self.hwnd) {
+            (true, Some(h)) => {
+                self.fs_saved = platform::enter_fullscreen(h);
+                if self.fs_saved.is_none() {
+                    ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
+                }
+            }
+            (false, Some(h)) => match self.fs_saved.take() {
+                Some(saved) => {
+                    platform::leave_fullscreen(h, &saved);
+                    platform::style_title_bar(h, [BG.r(), BG.g(), BG.b()], [TEXT_2.r(), TEXT_2.g(), TEXT_2.b()]);
+                }
+                None => ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false)),
+            },
+            (on, None) => ctx.send_viewport_cmd(ViewportCommand::Fullscreen(on)),
+        }
+        ctx.request_repaint();
+    }
+
+    /// A quick fade from the background color right after switching full screen on or off,
+    /// so the window growing or shrinking never shows a half-drawn frame.
+    fn view_fade(&self, ui: &Ui, full: Rect) {
+        let age = (ui.input(|i| i.time) - self.imm_since) as f32;
+        const FADE: f32 = 0.22;
+        if (0.0..FADE).contains(&age) {
+            let a = 1.0 - egui::emath::easing::cubic_out(age / FADE);
+            ui.painter().rect_filled(full, 0.0, with_alpha(BG, a));
+            ui.ctx().request_repaint();
         }
     }
 
@@ -1696,6 +1740,7 @@ impl eframe::App for App {
 
         if self.immersive {
             self.immersive_ui(ui);
+            self.view_fade(ui, full);
             self.overlays(ui, full);
             self.run_actions(&ctx);
             self.schedule_repaint(&ctx, 0.0);
@@ -1713,7 +1758,7 @@ impl eframe::App for App {
             self.settings.sidebar_collapsed = false;
             self.settings.save();
         }
-        let q_t = ctx.animate_bool_with_time(Id::new("queue-open"), self.queue_open && self.route != Route::NowPlaying, T);
+        let q_t = ctx.animate_bool_with_time(Id::new("queue-open"), self.queue_open && self.route != Route::NowPlaying, T_SLOW);
         let c_t = ctx.animate_bool_with_time(Id::new("side-folded"), self.settings.sidebar_collapsed, T);
         let g = GUTTER;
         let bar = Rect::from_min_max(pos2(full.left(), full.bottom() - BAR_H), full.max);
@@ -1751,6 +1796,7 @@ impl eframe::App for App {
         }
         self.dividers(ui, full, side, main, q_t);
         let seek_w = self.player_bar(ui, bar);
+        self.view_fade(ui, full);
         self.overlays(ui, full);
         self.run_actions(&ctx);
         self.schedule_repaint(&ctx, seek_w);
@@ -2340,13 +2386,14 @@ impl App {
             .on_hover_text(if loved { "Remove from Loved songs" } else { "Love" })
     }
 
+    /// The queue panel. It slides in from the right edge (the page makes room as it comes).
     fn queue_panel(&mut self, ui: &mut Ui, rect: Rect, t: f32) {
         let a = egui::emath::easing::cubic_out(t);
-        let rect = rect.translate(vec2((1.0 - a) * 40.0, 0.0));
-        ui.painter().rect_filled(rect, R_LG, with_alpha(PANEL, a));
-        if a < 0.3 {
-            return;
-        }
+        let rect = rect.translate(vec2((1.0 - a) * rect.width() * 0.35, 0.0));
+        let mut pu = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt("queue-panel"));
+        pu.multiply_opacity(egui::emath::easing::quadratic_out(t));
+        let ui = &mut pu;
+        ui.painter().rect_filled(rect, R_LG, PANEL);
         let inner = rect.shrink2(vec2(S3, S4));
         let p = ui.painter().clone();
         w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Queue", h2(), TEXT, 200.0);

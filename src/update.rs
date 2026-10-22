@@ -1,6 +1,6 @@
 //! Updates from GitHub Releases.
 //!
-//! Segno asks GitHub for the newest release (once a day when "Update automatically" is on, or
+//! Segno asks GitHub for the newest release (every few hours when "Update automatically" is on, or
 //! when you press "Check for updates"). If it's newer, the new Segno.exe is downloaded into the
 //! cache in the background and checked: size, and SHA-256 when GitHub lists one. It replaces the
 //! running exe when Segno quits, or right away with "Restart now".
@@ -23,7 +23,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const STORE: bool = cfg!(feature = "store");
 /// Passed to the new exe after "Restart now" so it waits for this one to close.
 pub const AFTER_UPDATE_ARG: &str = "--after-update";
-const DAY: u64 = 24 * 60 * 60;
+/// How often to look for a new version. A check is one small request to GitHub (a few KB).
+const CHECK_EVERY: u64 = 3 * 60 * 60;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
@@ -95,7 +96,7 @@ impl Updater {
         self.spawn_check(true);
     }
 
-    /// A sleeping thread that checks once a day while "Update automatically" is on.
+    /// A sleeping thread that checks every few hours while "Update automatically" is on.
     fn start_daily(&self) {
         let me = self.handle();
         std::thread::Builder::new()
@@ -104,11 +105,11 @@ impl Updater {
                 let last = me.last_checked.load(Ordering::Relaxed);
                 let now = crate::store::now_secs();
                 // Never right at startup: give the app a moment to settle.
-                let wait = (last + DAY).saturating_sub(now).max(20);
+                let wait = (last + CHECK_EVERY).saturating_sub(now).max(20);
                 std::thread::sleep(Duration::from_secs(wait));
                 if !me.auto.load(Ordering::Relaxed) {
                     // Look again in an hour in case it gets turned back on.
-                    me.last_checked.store(crate::store::now_secs().saturating_sub(DAY - 3600), Ordering::Relaxed);
+                    me.last_checked.store(crate::store::now_secs().saturating_sub(CHECK_EVERY - 3600), Ordering::Relaxed);
                     continue;
                 }
                 if matches!(*me.state.lk(), State::Ready { .. }) {
