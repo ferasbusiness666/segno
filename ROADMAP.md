@@ -37,9 +37,35 @@ The pitch: **one app for your own music and online music. Light, fast, free, no 
 
 ---
 
+## First: polish (Segno 1.1.x), before building more on top
+
+Rule: animations can cost a bit more battery, but RAM must stay light (now about 20–40 MB).
+
+### Dragging songs
+- ⬜ **Hold the song itself**: when you drag a song, the row lifts out of the list (bigger, shadow, "closer to you") instead of the small pink tag
+- ⬜ **Stays in line**: while reordering, the lifted row only moves up and down with the list, the other rows slide apart to make room
+- ⬜ **Flies to the queue**: drag it over the queue panel and it flies over and resizes to fit the panel (with a little motion blur), then lines up there
+- ⬜ **Smooth drop**: rows animate into their new place instead of jumping
+- ⬜ **Scroll while dragging**: holding a song near the top or bottom of any list scrolls it (works in the queue, not in Songs and playlists yet)
+
+### Queue
+- ⬜ **Clear what plays next**: make it obvious what comes after the current song, what you added by hand, and what Segno adds from your library
+- ⬜ **Queue panel slides in from the right** everywhere it opens
+
+### Full screen
+- ⬜ **No flicker** when going in and out of full screen (use a borderless window that fills the screen instead of the system full-screen switch)
+- ⬜ **Re-center when controls hide**: record and song info move to the middle when the controls fade, and back up smoothly when they return
+- ⬜ **Lyrics spot**: when synced lyrics are on, they sit under the record and song title (see 1.2)
+
+### General
+- ⬜ **Better animations across the app**: page changes, hovers, panels, lists
+- ⬜ **Check for updates more often**: every few hours instead of once a day (a check is a few KB)
+
+---
+
 ## Next: Segno 1.2 (close the gap with Cider and Liner)
 
-- ⬜ **Synced lyrics**: lines scroll and light up with the song, big in full screen (free from LRCLIB)
+- ⬜ **Synced lyrics**: lines scroll and light up with the song (free from LRCLIB); when turned on, they show in full screen under the record and song title
 - ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders
 - ⬜ **Volume levelling**: loud and quiet songs play at the same level
 - ⬜ **Crossfade and gapless playback**
