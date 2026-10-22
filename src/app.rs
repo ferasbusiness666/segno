@@ -19,6 +19,9 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// "For you" (suggestions from YouTube mixes) is hidden until it's good enough to show.
+pub const FOR_YOU: bool = false;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Route {
     Songs,
@@ -71,6 +74,8 @@ pub enum Action {
     InsertInPlaylist { pid: u64, at: Option<usize>, ids: Vec<u64> },
     RemoveFromPlaylist { pid: u64, index: usize },
     MoveInPlaylist { pid: u64, from: usize, to: usize },
+    /// Change the order of the playlists in the sidebar.
+    MovePlaylist { from: usize, to: usize },
     MoveInSongs { from: usize, to: usize },
     FoldSidebar(bool),
     StartRename(u64),
@@ -238,6 +243,11 @@ pub struct App {
     pub suggest_auto_tried: bool,
     /// "Add songs" box next to the queue.
     pub add_query: String,
+    /// The search box in an empty playlist.
+    pub empty_query: String,
+    /// The part of Settings that's open, and when it was picked (for the fade).
+    pub settings_section: crate::views::SettingsSection,
+    pub settings_section_t: f64,
     pub add_focus: bool,
     pub mini: bool,
     normal_size: Option<egui::Vec2>,
@@ -250,9 +260,13 @@ pub struct App {
     pub whats_new: Option<crate::changelog::WhatsNew>,
     /// Where the sidebar's page highlight last was.
     nav_hl: Option<Rect>,
-    /// The song the player bar showed, and the one before it while they cross-fade.
-    bar_last: Option<u64>,
-    bar_prev: Option<(NowInfo, f64)>,
+    /// A playlist being dragged to a new place in the sidebar: (its id, where it was, where the
+    /// pointer holds it).
+    pl_drag: Option<(u64, usize, f32)>,
+    /// The song that was playing last frame, and the one before it (with when it changed)
+    /// while the views cross-fade between them.
+    swap_last: Option<u64>,
+    swap_prev: Option<(NowInfo, f64)>,
     /// When a song was last dropped (the queue holds still a moment while it settles).
     pub flip_hold: f64,
     /// Popups and menus on screen, when each opened and where it grows from.
@@ -378,6 +392,9 @@ impl App {
             suggest_turn: 0,
             suggest_auto_tried: false,
             add_query: String::new(),
+            empty_query: String::new(),
+            settings_section: Default::default(),
+            settings_section_t: 0.0,
             add_focus: false,
             mini: false,
             normal_size: None,
@@ -389,8 +406,9 @@ impl App {
             whats_new: None,
             play_from: None,
             nav_hl: None,
-            bar_last: None,
-            bar_prev: None,
+            pl_drag: None,
+            swap_last: None,
+            swap_prev: None,
             flip_hold: 0.0,
             pop_seen: HashMap::new(),
             lift: None,
@@ -497,6 +515,18 @@ impl App {
                 None => self.stream_qitem(*id),
             })
             .collect()
+    }
+
+    /// While the song is changing: the old song and how far the change is (0..1, eased) over
+    /// `secs`.
+    pub fn song_swap(&self, ctx: &egui::Context, secs: f32) -> Option<(NowInfo, f32)> {
+        let (old, at) = self.swap_prev.as_ref()?;
+        let t = ((ctx.input(|i| i.time) - at) as f32 / secs).clamp(0.0, 1.0);
+        if t >= 1.0 {
+            return None;
+        }
+        ctx.request_repaint();
+        Some((old.clone(), egui::emath::easing::cubic_out(t)))
     }
 
     /// Queue entries for songs you add by hand (Play next, Add to queue, dragged in).
@@ -796,6 +826,8 @@ impl App {
     fn mark_dirty(&mut self) {
         if self.settings_dirty.is_none() {
             self.settings_dirty = Some(Instant::now());
+            // Wake up to save even if nothing else happens on screen.
+            self.ctx.request_repaint_after(Duration::from_millis(3200));
         }
     }
 
@@ -957,6 +989,16 @@ impl App {
         self.ps = self.player.snapshot();
         self.pos = self.player.position();
         self.note_played();
+        // A new song: remember the old one so the views can cross-fade.
+        let cur_id = self.current_id();
+        if cur_id != self.swap_last {
+            let now = ctx.input(|i| i.time);
+            self.swap_prev = match (self.swap_last.and_then(|id| self.info_for(id)), cur_id) {
+                (Some(old), Some(_)) => Some((old, now)),
+                _ => None,
+            };
+            self.swap_last = cur_id;
+        }
 
         // Keep the Windows media overlay in sync (only when something changed).
         let cur = self.current_id();
@@ -1253,6 +1295,13 @@ impl App {
                         p.tracks.insert(to, t);
                         store::save_playlists(&self.playlists);
                     }
+                }
+            }
+            Action::MovePlaylist { from, to } => {
+                if from < self.playlists.len() && to < self.playlists.len() && from != to {
+                    let p = self.playlists.remove(from);
+                    self.playlists.insert(to, p);
+                    store::save_playlists(&self.playlists);
                 }
             }
             Action::FoldSidebar(fold) => {
@@ -1962,6 +2011,9 @@ impl App {
         let hl = ui.painter().add(egui::Shape::Noop);
         let mut sel_rect = None;
         for (icon, label, route) in nav {
+            if route == Route::ForYou && !FOR_YOU {
+                continue;
+            }
             let sel = r == route || matches!((&r, &route), (Route::Album(_), Route::Albums) | (Route::Artist(_), Route::Artists));
             let resp = w::nav_item_ex(ui, icon, label, sel, None, false);
             if sel {
@@ -2001,22 +2053,25 @@ impl App {
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 let loved_n = self.loved_ids().len();
-                self.playlist_nav_item(ui, None, "Loved songs", loved_n, r == Route::Loved);
+                let (slot, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+                self.playlist_nav_item(ui, slot, resp, None, "Loved songs", loved_n, r == Route::Loved);
                 let pls: Vec<(u64, String, usize)> = self
                     .playlists
                     .iter()
                     .map(|p| (p.id, p.name.clone(), p.tracks.iter().filter(|t| self.entry_id(t).is_some()).count()))
                     .collect();
-                for (id, name, n) in pls {
-                    self.playlist_nav_item(ui, Some(id), &name, n, r == Route::Playlist(id));
-                }
+                self.sidebar_playlists(ui, &pls, &r);
             });
         let rest = ui.available_height() - 36.0;
         if rest > 0.0 {
             ui.add_space(rest);
         }
         let update_badge = matches!(self.updater.state(), update::State::Ready { .. } | update::State::Available { .. }).then(|| "Update".to_string());
+        let has_update = update_badge.is_some();
         if w::nav_item(ui, icons::SETTINGS, "Settings", r == Route::Settings, update_badge).clicked() {
+            if has_update {
+                self.settings_section = crate::views::SettingsSection::Updates;
+            }
             self.actions.push(Action::Go(Route::Settings));
         }
     }
@@ -2059,6 +2114,9 @@ impl App {
         ];
         let items = items.map(|(i, l, r, n)| (i, l, r, (n > 0).then(|| n.min(99).to_string())));
         for (icon, label, route, badge) in items {
+            if route == Route::ForYou && !FOR_YOU {
+                continue;
+            }
             let sel = r == route || matches!((&r, &route), (Route::Album(_), Route::Albums) | (Route::Artist(_), Route::Artists));
             if self.rail_button(ui, icon, label, sel, badge).clicked() {
                 self.actions.push(Action::Go(route));
@@ -2231,24 +2289,102 @@ impl App {
     fn nav_highlight(&mut self, ui: &Ui, slot: egui::layers::ShapeIdx, sel: Option<Rect>) {
         let ctx = ui.ctx();
         let shown = ctx.animate_bool_with_time(Id::new("nav-hl-on"), sel.is_some(), T);
+        // Coming back from another page: appear in place instead of sliding from the old spot.
+        let snap = shown < 0.05;
         if let Some(r) = sel {
-            // Coming back from another page: appear in place instead of sliding from the old spot.
-            let snap = shown < 0.05;
-            ctx.animate_value_with_time(Id::new("nav-hl-y"), r.top(), if snap { 0.0 } else { T_SLOW });
             self.nav_hl = Some(r);
         }
         let Some(r) = self.nav_hl else { return };
+        let y = w::glide(ctx, Id::new("nav-hl-y"), r.top(), if snap { 0.0 } else { 0.16 });
         if shown <= 0.0 {
             return;
         }
-        let y = ctx.animate_value_with_time(Id::new("nav-hl-y"), r.top(), T_SLOW);
         let hr = Rect::from_min_size(pos2(r.left(), y), r.size());
         ui.painter().set(slot, egui::Shape::rect_filled(hr, R_MD, with_alpha(RAISED_2, shown)));
     }
 
-    fn playlist_nav_item(&mut self, ui: &mut Ui, pid: Option<u64>, name: &str, count: usize, selected: bool) {
+    /// The playlists in the sidebar. Drag one up or down to change the order: it lifts and
+    /// follows the pointer while the others slide out of the way.
+    fn sidebar_playlists(&mut self, ui: &mut Ui, pls: &[(u64, String, usize)], r: &Route) {
+        const ROW: f32 = 48.0;
+        let ctx = ui.ctx().clone();
         let wdt = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(vec2(wdt, 48.0), Sense::click());
+        let pointer = ctx.input(|i| i.pointer.latest_pos());
+        let released = ctx.input(|i| i.pointer.any_released());
+        // Where the list starts (rows are laid out one under the other).
+        let top = ui.cursor().top();
+        // Drop target while dragging: where the lifted playlist would go.
+        let drag = self.pl_drag.filter(|(id, from, _)| pls.get(*from).map(|p| p.0) == Some(*id));
+        if self.pl_drag.is_some() && drag.is_none() {
+            self.pl_drag = None;
+        }
+        let gap = match (drag, pointer) {
+            (Some((_, _, grab)), Some(p)) => Some((((p.y - grab - top) / ROW).round().max(0.0) as usize).min(pls.len().saturating_sub(1))),
+            _ => None,
+        };
+        let mut drop_to = None;
+        for (i, (id, name, n)) in pls.iter().enumerate() {
+            let (slot, resp) = ui.allocate_exact_size(vec2(wdt, ROW), Sense::click_and_drag());
+            let mut target = slot.top() - top;
+            if let (Some((_, from, _)), Some(t)) = (drag, gap) {
+                if i != from {
+                    let j = if i > from { i - 1 } else { i };
+                    let k = if j >= t { j + 1 } else { j };
+                    target = k as f32 * ROW;
+                }
+            }
+            let y = w::glide(&ctx, Id::new(("pl-glide", *id)), target, 0.18);
+            let draw = Rect::from_min_size(pos2(slot.left(), top + y), slot.size());
+            if resp.drag_started() {
+                let grab = pointer.map(|p| p.y - slot.top()).unwrap_or(ROW / 2.0);
+                self.pl_drag = Some((*id, i, grab));
+            }
+            if drag.map(|d| d.0) == Some(*id) {
+                if released {
+                    drop_to = gap.map(|t| (i, t));
+                }
+                continue;
+            }
+            self.playlist_nav_item(ui, draw, resp, Some(*id), name, *n, *r == Route::Playlist(*id));
+        }
+        // The lifted playlist, under the pointer, in line with the list.
+        if let (Some((id, from, grab)), Some(p)) = (drag, pointer) {
+            if let Some((_, name, n)) = pls.get(from) {
+                let y = (p.y - grab).clamp(top - ROW / 2.0, top + (pls.len() as f32 - 0.5) * ROW);
+                let ghost = Rect::from_min_size(pos2(ui.max_rect().left(), y), vec2(wdt, ROW));
+                let layer = egui::LayerId::new(egui::Order::Tooltip, Id::new("pl-ghost"));
+                let gp = ctx.layer_painter(layer);
+                gp.add(egui::epaint::Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(ghost, R_MD));
+                gp.rect_filled(ghost, R_MD, RAISED_2);
+                self.paint_playlist_item(&gp, ghost, Some(id), name, *n, true, 0.0);
+                ctx.set_cursor_icon(CursorIcon::Grabbing);
+                // Let go: it lands where it was dropped (gliding from under the pointer).
+                if released {
+                    w::glide(&ctx, Id::new(("pl-glide", id)), y - top, 0.0);
+                }
+                // Near the top or bottom of the list: scroll.
+                let clip = ui.clip_rect();
+                let edge = 40.0;
+                let up = ((clip.top() + edge - p.y) / edge).clamp(0.0, 1.0);
+                let down = ((p.y - (clip.bottom() - edge)) / edge).clamp(0.0, 1.0);
+                if up > 0.0 || down > 0.0 {
+                    let dt = ctx.input(|i| i.stable_dt).clamp(0.001, 0.05);
+                    ui.scroll_with_delta(vec2(0.0, (up - down) * 600.0 * dt));
+                }
+                ctx.request_repaint();
+            }
+        }
+        if released && drag.is_some() {
+            if let Some((from, to)) = drop_to {
+                if from != to {
+                    self.actions.push(Action::MovePlaylist { from, to });
+                }
+            }
+            self.pl_drag = None;
+        }
+    }
+
+    fn playlist_nav_item(&mut self, ui: &mut Ui, rect: Rect, resp: Response, pid: Option<u64>, name: &str, count: usize, selected: bool) {
         let (h, _) = w::hover_press(ui, &resp);
         // Drop target for dragged songs.
         let dragging = egui::DragAndDrop::has_payload_of_type::<DragSongs>(ui.ctx());
@@ -2262,7 +2398,17 @@ impl App {
         if drop_hover {
             p.rect_stroke(rect, R_MD, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
         }
+        let p = p.clone();
+        self.paint_playlist_item(&p, rect, pid, name, count, selected, h);
+        self.playlist_item_events(resp, pid);
+    }
+
+    /// A sidebar playlist's picture, name and song count.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_playlist_item(&mut self, p: &egui::Painter, rect: Rect, pid: Option<u64>, name: &str, count: usize, _selected: bool, h: f32) {
         let art = Rect::from_min_size(pos2(rect.left() + S2, rect.top() + 6.0), vec2(36.0, 36.0));
+        // Pictures lean in a touch on hover.
+        let art = w::scale_rect(art, 1.0 + 0.05 * h);
         match pid {
             None => {
                 p.rect_filled(art, R_SM, ACCENT);
@@ -2272,21 +2418,18 @@ impl App {
                 let first = self.playlist_art(id).0;
                 let tex = self.art.cover(first, ArtSize::S);
                 if first.is_some() {
-                    w::art(ui.painter(), art, tex, R_SM, Color32::WHITE);
+                    w::art(p, art, tex, R_SM, Color32::WHITE);
                 } else {
-                    ui.painter().rect_filled(art, R_SM, RAISED_2);
-                    icons::glyph(ui.painter(), art.center(), icons::LIST_MUSIC, 16.0, TEXT_2);
+                    w::gradient_tile(p, art, R_SM, lerp_color(ACCENT_LO, RAISED_2, 0.55), lerp_color(ACCENT_LO, BG, 0.82));
+                    icons::glyph(p, art.center(), icons::LIST_MUSIC, 16.0, with_alpha(TEXT, 0.75));
                 }
             }
         }
-        let x = art.right() + S3;
+        let x = rect.left() + S2 + 36.0 + S3;
         let tw = rect.right() - x - S2;
-        let fg = if selected { TEXT } else { lerp_color(TEXT, TEXT, h) };
-        w::text(ui.painter(), pos2(x, rect.center().y - 8.0), Align2::LEFT_CENTER, name, body(), fg, tw);
+        w::text(p, pos2(x, rect.center().y - 8.0), Align2::LEFT_CENTER, name, body(), TEXT, tw);
         let sub = if pid.is_none() { theme::plural(count, "song", "songs") } else { format!("Playlist · {}", theme::plural(count, "song", "songs")) };
-        w::text(ui.painter(), pos2(x, rect.center().y + 9.0), Align2::LEFT_CENTER, &sub, small(), TEXT_2, tw);
-
-        self.playlist_item_events(resp, pid);
+        w::text(p, pos2(x, rect.center().y + 9.0), Align2::LEFT_CENTER, &sub, small(), TEXT_2, tw);
     }
 
     /// Click, drop and right-click for a playlist in the sidebar (full or folded).
@@ -2348,32 +2491,18 @@ impl App {
         let art_resp = ui.interact(art_r, Id::new("bar-art"), Sense::click());
         let (ah, _) = w::hover_press(ui, &art_resp);
         // A new song: the old cover and title fade out and up as the new ones come in.
-        let now = ui.input(|i| i.time);
-        let cur_id = cur.as_ref().map(|t| t.id);
-        if cur_id != self.bar_last {
-            if let (Some(old), Some(_)) = (self.bar_last.and_then(|id| self.info_for(id)), cur_id) {
-                self.bar_prev = Some((old, now));
-            }
-            self.bar_last = cur_id;
-        }
         let mut swap = 1.0;
-        if let Some((old, at)) = self.bar_prev.clone() {
-            let t = ((now - at) as f32 / 0.34).clamp(0.0, 1.0);
-            if t >= 1.0 {
-                self.bar_prev = None;
-            } else {
-                ui.ctx().request_repaint();
-                swap = egui::emath::easing::cubic_out(t);
-                let tex = self.art.cover(old.art, ArtSize::S);
-                w::art(ui.painter(), art_r, tex, R_SM + 2.0, with_alpha(Color32::WHITE, 1.0 - swap));
-                let tx = art_r.right() + S3;
-                let tw = (rect.left() + left_w - tx - 40.0).max(40.0);
-                let dy = -12.0 * swap;
-                // Out of the way quickly, so the old and new titles never pile up.
-                let a = (1.0 - swap * 3.0).max(0.0);
-                w::text(ui.painter(), pos2(tx, rect.center().y - 9.0 + dy), Align2::LEFT_CENTER, &old.title, body_strong(), with_alpha(TEXT, a), tw);
-                w::text(ui.painter(), pos2(tx, rect.center().y + 10.0 + dy), Align2::LEFT_CENTER, &old.artist, small(), with_alpha(TEXT_2, a), tw);
-            }
+        if let Some((old, e)) = self.song_swap(ui.ctx(), 0.34) {
+            swap = e;
+            let tex = self.art.cover(old.art, ArtSize::S);
+            w::art(ui.painter(), art_r, tex, R_SM + 2.0, with_alpha(Color32::WHITE, 1.0 - swap));
+            let tx = art_r.right() + S3;
+            let tw = (rect.left() + left_w - tx - 40.0).max(40.0);
+            let dy = -12.0 * swap;
+            // Out of the way quickly, so the old and new titles never pile up.
+            let a = (1.0 - swap * 3.0).max(0.0);
+            w::text(ui.painter(), pos2(tx, rect.center().y - 9.0 + dy), Align2::LEFT_CENTER, &old.title, body_strong(), with_alpha(TEXT, a), tw);
+            w::text(ui.painter(), pos2(tx, rect.center().y + 10.0 + dy), Align2::LEFT_CENTER, &old.artist, small(), with_alpha(TEXT_2, a), tw);
         }
         if let Some(t) = &cur {
             let tex = self.art.cover(t.art, ArtSize::S);
@@ -2502,13 +2631,26 @@ impl App {
         }
     }
 
+    /// The "now playing" bars: bouncing while the song plays, settling when it's paused. While
+    /// they move the window redraws about 25 times a second (only while they're on screen).
+    pub fn np_bars(&self, ui: &Ui, p: &egui::Painter, c: egui::Pos2, size: f32, color: Color32) {
+        let playing = self.ps.playing && !self.ps.waiting;
+        let ctx = ui.ctx();
+        let motion = ctx.animate_bool_with_time(Id::new("np-bars-motion"), playing, 0.35);
+        let t = ctx.input(|i| i.time);
+        icons::now_playing_bars(p, c, size, color, t, motion);
+        if motion > 0.0 {
+            ctx.request_repaint_after(Duration::from_millis(40));
+        }
+    }
+
     pub fn love_button(&self, ui: &Ui, rect: Rect, resp: egui::Response, id: u64) -> egui::Response {
         let loved = self.loved.contains(&id);
         let (h, pr) = w::hover_press(ui, &resp);
         // A small pop when it becomes loved.
         let pop = ui.ctx().animate_bool_with_time(resp.id.with("pop"), loved, T_SLOW);
         let bump = if loved { (pop * std::f32::consts::PI).sin() * 0.22 } else { 0.0 };
-        let s = 16.0 * (1.0 + bump - 0.08 * pr);
+        let s = 16.0 * (1.0 + bump + 0.08 * h - 0.08 * pr);
         if loved {
             icons::heart_filled(ui.painter(), rect.center(), s, ACCENT);
         } else {

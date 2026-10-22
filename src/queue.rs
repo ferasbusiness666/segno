@@ -189,7 +189,7 @@ impl App {
         ctx.data_mut(|d| d.insert_temp(id.with("last"), target));
         let jump = last.map(|l| (l - target).abs() > ROW * 6.0).unwrap_or(true);
         let hold = now - self.flip_hold < 0.4;
-        let y = ctx.animate_value_with_time(id, target, if jump || hold { 0.0 } else { 0.24 });
+        let y = w::glide(ctx, id, target, if jump || hold { 0.0 } else { 0.26 });
         // New in the queue (not just scrolled into view): fade in.
         let born_key = id.with("born");
         if last.is_none() && now - changed < 0.3 {
@@ -262,14 +262,14 @@ impl App {
             p.rect_filled(art_r, R_SM, with_alpha(Color32::BLACK, 0.5));
             if self.ps.waiting && ah == 0.0 {
                 w::spinner(ui, art_r.center(), 8.0, TEXT);
-            } else if ah > 0.0 || !self.ps.playing {
+            } else if ah > 0.0 {
                 if self.ps.playing {
-                    icons::pause(p, art_r.center(), 13.0, TEXT);
+                    icons::pause(p, art_r.center(), 13.0, with_alpha(TEXT, ah));
                 } else {
-                    icons::play(p, art_r.center(), 13.0, TEXT);
+                    icons::play(p, art_r.center(), 13.0, with_alpha(TEXT, ah));
                 }
             } else {
-                icons::now_playing_bars(p, art_r.center(), 14.0, ACCENT);
+                self.np_bars(ui, p, art_r.center(), 14.0, ACCENT);
             }
         } else if h > 0.0 {
             p.rect_filled(art_r, R_SM, with_alpha(Color32::BLACK, 0.45 * h));

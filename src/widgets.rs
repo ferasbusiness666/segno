@@ -47,6 +47,34 @@ pub fn group_hover_press(ui: &Ui, resp: &Response, rect: Rect) -> (f32, f32) {
     (h, p)
 }
 
+/// A value that eases to `target` (fast at first, gentle at the end) instead of moving at a
+/// constant speed like egui's own animation. `secs` 0 jumps straight there.
+pub fn glide(ctx: &egui::Context, id: Id, target: f32, secs: f32) -> f32 {
+    let now = ctx.input(|i| i.time);
+    // (from, to, started)
+    let st: Option<(f32, f32, f64)> = ctx.data(|d| d.get_temp(id));
+    let Some((from, to, at)) = st else {
+        ctx.data_mut(|d| d.insert_temp(id, (target, target, now)));
+        return target;
+    };
+    let t = if secs <= 0.0 { 1.0 } else { ((now - at) as f32 / secs).clamp(0.0, 1.0) };
+    let cur = egui::lerp(from..=to, egui::emath::easing::cubic_out(t));
+    if secs <= 0.0 {
+        ctx.data_mut(|d| d.insert_temp(id, (target, target, now)));
+        return target;
+    }
+    if to != target {
+        // Start a new glide from wherever it is now.
+        ctx.data_mut(|d| d.insert_temp(id, (cur, target, now)));
+        ctx.request_repaint();
+        return cur;
+    }
+    if t < 1.0 {
+        ctx.request_repaint();
+    }
+    cur
+}
+
 pub fn scale_rect(r: Rect, s: f32) -> Rect {
     Rect::from_center_size(r.center(), r.size() * s)
 }
@@ -122,7 +150,8 @@ pub fn icon_button_at(ui: &Ui, rect: Rect, resp: Response, icon: &str, active: b
         p.circle_filled(rect.center(), rect.width() / 2.0, with_alpha(Color32::WHITE, 0.08 * h));
     }
     let base = if active { ACCENT } else { lerp_color(TEXT_2, TEXT, h) };
-    let s = rect.width() * 0.5 * (1.0 - 0.08 * pr);
+    // Hover: the icon grows a touch; press: it dips.
+    let s = rect.width() * 0.5 * (1.0 + 0.08 * h - 0.1 * pr);
     icons::glyph(p, rect.center(), icon, s, base);
     if active {
         p.circle_filled(rect.center() + vec2(0.0, rect.height() * 0.42), 1.8, ACCENT);
@@ -146,7 +175,7 @@ pub fn transport_button_c(ui: &mut Ui, size: f32, which: Transport, tip: &str, b
     let (h, pr) = hover_press(ui, &resp);
     let p = ui.painter();
     let c = lerp_color(base, TEXT, h);
-    let s = size * 0.42 * (1.0 - 0.1 * pr);
+    let s = size * 0.42 * (1.0 + 0.07 * h - 0.1 * pr);
     match which {
         Transport::Prev => icons::skip(p, rect.center(), s, c, -1.0),
         Transport::Next => icons::skip(p, rect.center(), s, c, 1.0),
@@ -321,8 +350,9 @@ pub fn nav_item_ex(ui: &mut Ui, icon: &str, label: &str, selected: bool, badge: 
         p.rect_filled(rect, R_MD, bg);
     }
     let fg = lerp_color(lerp_color(TEXT_2, TEXT, h), TEXT, sel);
-    let ic = pos2(rect.left() + S3 + 9.0, rect.center().y);
-    icons::glyph(p, ic, icon, 18.0 * (1.0 - 0.06 * pr), if selected { ACCENT } else { fg });
+    // Hover: the icon nudges right and grows a little.
+    let ic = pos2(rect.left() + S3 + 9.0 + 1.5 * h, rect.center().y);
+    icons::glyph(p, ic, icon, 18.0 * (1.0 + 0.06 * h - 0.06 * pr), if selected { ACCENT } else { fg });
     let font = if selected { body_strong() } else { body() };
     text(
         p,
@@ -424,6 +454,43 @@ pub fn vgradient(p: &Painter, rect: Rect, radius: f32, stops: &[(f32, Color32)])
             uv: WHITE_UV,
             color: c,
         });
+        if i > 0 {
+            let b = (i as u32 - 1) * 2;
+            mesh.indices.extend_from_slice(&[b, b + 1, b + 2, b + 1, b + 3, b + 2]);
+        }
+    }
+    p.add(Shape::mesh(mesh));
+}
+
+/// A top-to-bottom gradient in a box with all four corners rounded (cover tiles).
+pub fn gradient_tile(p: &Painter, rect: Rect, radius: f32, top: Color32, bottom: Color32) {
+    use egui::epaint::{Mesh, Vertex, WHITE_UV};
+    let radius = radius.min(rect.height() / 2.0);
+    let mut ys: Vec<f32> = Vec::new();
+    for i in 0..=8 {
+        ys.push(rect.top() + radius * (i as f32 / 8.0));
+    }
+    for i in 1..8 {
+        ys.push(rect.top() + radius + (rect.height() - 2.0 * radius) * (i as f32 / 8.0));
+    }
+    for i in 0..=8 {
+        ys.push(rect.bottom() - radius + radius * (i as f32 / 8.0));
+    }
+    let inset = |y: f32| -> f32 {
+        let d = (y - rect.top()).min(rect.bottom() - y);
+        if d >= radius {
+            0.0
+        } else {
+            let k = radius - d;
+            radius - (radius * radius - k * k).max(0.0).sqrt()
+        }
+    };
+    let mut mesh = Mesh::default();
+    for (i, &y) in ys.iter().enumerate() {
+        let x = inset(y);
+        let c = lerp_color(top, bottom, ((y - rect.top()) / rect.height()).clamp(0.0, 1.0));
+        mesh.vertices.push(Vertex { pos: pos2(rect.left() + x, y), uv: WHITE_UV, color: c });
+        mesh.vertices.push(Vertex { pos: pos2(rect.right() - x, y), uv: WHITE_UV, color: c });
         if i > 0 {
             let b = (i as u32 - 1) * 2;
             mesh.indices.extend_from_slice(&[b, b + 1, b + 2, b + 1, b + 3, b + 2]);
@@ -570,17 +637,21 @@ pub fn vinyl(p: &Painter, center: Pos2, r: f32, label: Option<TextureId>, label_
     }
     p.add(Shape::mesh(mesh));
     p.circle_stroke(center, r, Stroke::new(1.0, Color32::from_white_alpha(18)));
-    // Label.
+    vinyl_label(p, center, r, label, label_color, angle, 1.0);
+}
+
+/// The record's center label (and spindle). Drawn on its own to cross-fade between songs.
+pub fn vinyl_label(p: &Painter, center: Pos2, r: f32, label: Option<TextureId>, label_color: Color32, angle: f32, alpha: f32) {
     let lr = r * 0.34;
     match label {
-        Some(t) => art_disc(p, center, lr, t, angle, Color32::WHITE),
+        Some(t) => art_disc(p, center, lr, t, angle, with_alpha(Color32::WHITE, alpha)),
         None => {
-            p.circle_filled(center, lr, label_color);
+            p.circle_filled(center, lr, with_alpha(label_color, alpha));
             let mark = center + vec2(angle.cos(), angle.sin()) * lr * 0.6;
-            p.circle_filled(mark, lr * 0.08, Color32::from_white_alpha(120));
+            p.circle_filled(mark, lr * 0.08, Color32::from_white_alpha((120.0 * alpha) as u8));
         }
     }
-    p.circle_stroke(center, lr, Stroke::new(1.0, Color32::from_black_alpha(80)));
+    p.circle_stroke(center, lr, Stroke::new(1.0, Color32::from_black_alpha((80.0 * alpha) as u8)));
     // Spindle hole.
     p.circle_filled(center, r * 0.022, Color32::from_rgb(0x0C, 0x0C, 0x0E));
     p.circle_stroke(center, r * 0.022, Stroke::new(1.0, Color32::from_white_alpha(40)));

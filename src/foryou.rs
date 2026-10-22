@@ -252,7 +252,7 @@ impl App {
         } else if playing_this && !(h > 0.01) {
             p.circle_filled(pc, 22.0, with_alpha(Color32::BLACK, 0.6));
             if self.ps.playing {
-                icons::now_playing_bars(&p, pc, 16.0, ACCENT);
+                self.np_bars(ui, &p, pc, 16.0, ACCENT);
             } else {
                 icons::play(&p, pc, 14.0, TEXT);
             }

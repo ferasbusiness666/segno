@@ -28,7 +28,6 @@ Segno updates itself, so you only download it once.
 - Drag the edges of the sidebar and the queue to resize them. Drag the sidebar small, or press Ctrl + B, to fold it into icons.
 - Now Playing: the record slides out of its sleeve and spins while the song plays, with Up next beside it.
   Press **F11** (or the full screen button) for a full-screen view over a blurred copy of the cover.
-- **For you**: new songs picked from what you've been playing lately. Listen right away, download what you like.
 - Give any playlist your own picture (right-click it, or click its cover).
 - Mini player (always on top), media keys and the Windows media overlay.
 - Keeps playing from the tray when you close the window while music is playing.
@@ -76,11 +75,11 @@ Only download music you have the right to.
 
 ## Where things are stored
 
-- Settings, playlists, download history and what you played (for For you): `%APPDATA%\Segno`
+- Settings, playlists, download history and what you played: `%APPDATA%\Segno`
 - Library index, cover cache, yt-dlp: `%LOCALAPPDATA%\Segno`
 - If something crashes, details go to `%LOCALAPPDATA%\Segno\crash.log`
 
-Segno doesn't collect or send anything about you. The only things it connects to are YouTube and the sites you paste links from (when you search, download or open For you), GitHub (to check for updates) and the yt-dlp and Deno downloads.
+Segno doesn't collect or send anything about you. The only things it connects to are YouTube and the sites you paste links from (when you search or download), GitHub (to check for updates) and the yt-dlp and Deno downloads.
 
 ## Build it yourself
 

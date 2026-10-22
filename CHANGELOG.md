@@ -9,6 +9,24 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.7
+
+### New
+- Drag playlists in the sidebar to put them in the order you want.
+- Settings has sections now (Library, Playback, Downloads, Updates, Shortcuts, About), and About shows who made Segno, the source code and how to get in touch.
+- An empty playlist or Loved songs page lets you search your library and add songs right there.
+
+### Better
+- The bars next to the playing song move while it plays and stop when you pause, everywhere they show up.
+- Now Playing and full screen fade between songs: the cover, the record label, the title and the background.
+- The sidebar highlight moves faster, and icons react a little when you point at them.
+- Renaming a playlist happens right where the name is, and new playlists get a nicer picture.
+- More room between albums and artists, so the hover doesn't touch the row below.
+- "For you" is hidden for now, until it can suggest songs well.
+
+### Fixed
+- The Loved songs picture now has round corners at the bottom too.
+
 ## 1.1.6
 
 ### New

@@ -161,6 +161,10 @@ impl RowInfo {
     }
 }
 
+/// The panel shown in an empty playlist: header, search box, and a few songs to add.
+const EMPTY_ROWS: usize = 6;
+const EMPTY_PANEL_H: f32 = 20.0 + 40.0 + 56.0 + 40.0 + 32.0 + EMPTY_ROWS as f32 * 52.0 + 40.0;
+
 pub(crate) fn menu_sep(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(MENU_W, 9.0), Sense::hover());
     ui.painter().line_segment([pos2(r.left() + 6.0, r.center().y), pos2(r.right() - 6.0, r.center().y)], Stroke::new(1.0, HAIRLINE));
@@ -581,8 +585,8 @@ impl App {
             let a = 1.0 - hv;
             if is_cur && self.ps.waiting {
                 w::spinner(ui, num_c, 7.0, with_alpha(ACCENT, a));
-            } else if is_cur && self.ps.playing {
-                icons::now_playing_bars(&p, num_c, 13.0, with_alpha(ACCENT, a));
+            } else if is_cur {
+                self.np_bars(ui, &p, num_c, 13.0, with_alpha(ACCENT, a));
             } else if mode.numbers {
                 let n = if mode.track_numbers && t.track_no > 0 { t.track_no as usize } else { i + 1 };
                 let c = if is_cur { ACCENT } else { TEXT_2 };
@@ -862,7 +866,8 @@ impl App {
             return (0.0, String::new());
         }
         let (cols, card) = Self::grid_metrics(ui.available_width(), 168.0);
-        let row_h = card + 64.0;
+        // Room under each card so its hover surface never touches the row below.
+        let row_h = card + 80.0;
         let rows = n.div_ceil(cols);
         let off = self.list_page(
             ui,
@@ -883,7 +888,7 @@ impl App {
                         break;
                     }
                     let x = r.left() + S2 + c as f32 * (card + S5);
-                    let cr = Rect::from_min_size(pos2(x, r.top()), vec2(card, row_h - S2));
+                    let cr = Rect::from_min_size(pos2(x, r.top() + S2), vec2(card, card + 56.0));
                     let (key, title, artist, art) = {
                         let a = &app.lib.albums[i];
                         (a.key, a.title.clone(), a.artist.clone(), a.art)
@@ -902,7 +907,7 @@ impl App {
             return (0.0, String::new());
         }
         let (cols, card) = Self::grid_metrics(ui.available_width(), 160.0);
-        let row_h = card + 64.0;
+        let row_h = card + 80.0;
         let rows = n.div_ceil(cols);
         let off = self.list_page(
             ui,
@@ -923,7 +928,7 @@ impl App {
                         break;
                     }
                     let x = r.left() + S2 + c as f32 * (card + S5);
-                    let cr = Rect::from_min_size(pos2(x, r.top()), vec2(card, row_h - S2));
+                    let cr = Rect::from_min_size(pos2(x, r.top() + S2), vec2(card, card + 56.0));
                     let (key, name, songs, art) = {
                         let a = &app.lib.artists[i];
                         (a.key, a.name.clone(), a.tracks.len(), a.art)
@@ -996,7 +1001,7 @@ impl App {
         let radius = if round { size / 2.0 } else { R_MD };
         w::soft_shadow(&p, ar, radius, 1.0);
         if loved_tile {
-            w::vgradient(&p, ar, R_MD, &[(0.0, ACCENT_HI), (1.0, Color32::from_rgb(0x8A, 0x1C, 0x3A))]);
+            w::gradient_tile(&p, ar, R_MD, ACCENT_HI, Color32::from_rgb(0x8A, 0x1C, 0x3A));
             icons::heart_filled(&p, ar.center(), size * 0.36, Color32::WHITE);
         } else if let Some(pid) = playlist.filter(|_| art.is_none()) {
             self.collage(ui, ar, pid);
@@ -1025,17 +1030,27 @@ impl App {
         let renaming = matches!(&self.rename, Some((pid, _, _)) if Some(*pid) == playlist);
         let title_y = ar.top() + size * 0.42 + 34.0;
         if renaming {
-            let tr = Rect::from_min_size(pos2(tx - 6.0, title_y - 26.0), vec2(tw.min(560.0), 52.0));
-            let mut cu = ui.new_child(egui::UiBuilder::new().max_rect(tr));
             let (pid, mut name, first) = self.rename.clone().unwrap();
-            ui.painter().rect_filled(tr, R_MD, with_alpha(Color32::BLACK, 0.3));
+            // The field sits exactly where the title is, same size, so the name doesn't jump;
+            // a soft box around it grows with the text.
+            let font = display();
+            let row_h = ui.fonts_mut(|f| f.row_height(&font));
+            let text_w = w::text_width(ui, if name.is_empty() { " " } else { &name }, font.clone());
+            let field_w = (text_w + 24.0).clamp(200.0, tw);
+            // The text goes exactly where the title is drawn; the box is just around it.
+            let field = Rect::from_min_size(pos2(tx, title_y - row_h / 2.0), vec2(field_w, row_h));
+            let bx = field.expand2(vec2(10.0, 2.0));
+            let fp = ui.painter();
+            fp.rect_filled(bx, R_MD, with_alpha(Color32::BLACK, 0.28));
+            fp.rect_stroke(bx, R_MD, egui::Stroke::new(1.0, with_alpha(ACCENT, 0.7)), egui::StrokeKind::Inside);
+            let mut cu = ui.new_child(egui::UiBuilder::new().max_rect(field));
             let te = egui::TextEdit::singleline(&mut name)
                 .id(Id::new(("rename", pid)))
-                .font(FontId::new(32.0, bold()))
+                .font(font)
                 .text_color(TEXT)
                 .frame(egui::Frame::NONE)
-                .margin(egui::Margin::symmetric(6, 6))
-                .desired_width(tr.width() - 12.0)
+                .margin(egui::Margin::ZERO)
+                .desired_width(field.width())
                 .show(&mut cu);
             if first {
                 te.response.request_focus();
@@ -1168,8 +1183,9 @@ impl App {
         if arts.len() < 4 {
             let tex = self.art.cover(arts.first().copied(), ArtSize::L);
             if arts.is_empty() {
-                p.rect_filled(rect, R_MD, RAISED_2);
-                icons::glyph(p, rect.center(), icons::LIST_MUSIC, rect.width() * 0.3, TEXT_3);
+                // No songs yet: a soft tile in the app's color instead of a gray box.
+                w::gradient_tile(p, rect, R_MD, lerp_color(ACCENT_LO, RAISED_2, 0.55), lerp_color(ACCENT_LO, BG, 0.82));
+                icons::glyph(p, rect.center(), icons::LIST_MUSIC, rect.width() * 0.3, with_alpha(TEXT, 0.75));
             } else {
                 w::art(p, rect, tex, R_MD, Color32::WHITE);
             }
@@ -1316,7 +1332,7 @@ impl App {
         let t2 = title.clone();
         let kind = if pid.is_some() { "Playlist" } else { "Your favorites" };
         let empty = n == 0;
-        let header_h = if empty { 352.0 + 220.0 } else { 352.0 };
+        let header_h = if empty { 352.0 + EMPTY_PANEL_H } else { 352.0 };
         let off = self.list_page(
             ui,
             ("playlist", pid),
@@ -1348,16 +1364,10 @@ impl App {
                         app.actions.push(Action::Go(Route::Downloads));
                     }
                 } else if empty {
-                    let er = Rect::from_min_max(pos2(r.left(), hr.bottom() - 40.0), r.max);
-                    let mut eu = ui.new_child(egui::UiBuilder::new().max_rect(er).layout(egui::Layout::top_down(egui::Align::Center)));
-                    let (t, b) = if pid.is_some() {
-                        ("This playlist is empty", "Press + above to find songs, or drag songs onto the playlist in the sidebar.")
-                    } else {
-                        ("No loved songs yet", "Press the heart next to any song and it lands here.")
-                    };
-                    if w::empty_state(&mut eu, if pid.is_some() { icons::LIST_MUSIC } else { icons::HEART }, t, b, Some(("Browse songs", None))) {
-                        app.actions.push(Action::Go(Route::Songs));
-                    }
+                    // Loved songs has no buttons under its header, so the panel moves up.
+                    let up = if pid.is_none() { 84.0 } else { 36.0 };
+                    let er = Rect::from_min_max(pos2(r.left() + PAD_X, hr.bottom() - up), pos2(r.right() - PAD_X, r.bottom()));
+                    app.empty_list_panel(ui, er, pid);
                 } else {
                     let ch = Rect::from_min_size(pos2(r.left(), r.bottom() - 32.0), vec2(r.width(), 32.0));
                     app.column_header(ui, ch, mode);
@@ -1372,6 +1382,77 @@ impl App {
             self.sticky_columns(ui, off, header_h, mode);
         }
         (off, title)
+    }
+
+    /// An empty playlist (or Loved songs): find songs right here instead of an empty page.
+    fn empty_list_panel(&mut self, ui: &mut Ui, r: Rect, pid: Option<u64>) {
+        let width = r.width().min(720.0);
+        let panel = Rect::from_min_size(r.min, vec2(width, EMPTY_PANEL_H - 20.0));
+        let p = ui.painter().clone();
+        p.rect_filled(panel, R_LG, with_alpha(Color32::WHITE, 0.035));
+        p.rect_stroke(panel, R_LG, Stroke::new(1.0, with_alpha(Color32::WHITE, 0.05)), egui::StrokeKind::Inside);
+        let inner = panel.shrink(S5);
+        let (icon, title, sub) = match pid {
+            Some(_) => (icons::LIST_PLUS, "Let's add some songs", "Pick from your library below, or drag songs onto this playlist in the sidebar."),
+            None => (icons::HEART, "Songs you love land here", "Press the heart on any song. Here are a few to start with."),
+        };
+        let ic = pos2(inner.left() + 20.0, inner.top() + 20.0);
+        p.circle_filled(ic, 20.0, with_alpha(ACCENT, 0.16));
+        icons::glyph(&p, ic, icon, 18.0, ACCENT);
+        w::text(&p, pos2(inner.left() + 54.0, inner.top() + 10.0), Align2::LEFT_CENTER, title, h2(), TEXT, inner.width() - 54.0);
+        w::text(&p, pos2(inner.left() + 54.0, inner.top() + 31.0), Align2::LEFT_CENTER, sub, small(), TEXT_2, inner.width() - 54.0);
+
+        // Search the library.
+        let sr = Rect::from_min_size(pos2(inner.left(), inner.top() + 56.0), vec2(inner.width(), 40.0));
+        let mut su = ui.new_child(egui::UiBuilder::new().max_rect(sr));
+        let mut q = std::mem::take(&mut self.empty_query);
+        w::search_box(&mut su, &mut q, "Search your songs", Id::new(("empty-search", pid)), sr.width());
+        self.empty_query = q;
+        let query = self.empty_query.trim().to_string();
+        let ids: Vec<u64> = if query.is_empty() {
+            let mut v: Vec<(u64, u64)> = self.lib.tracks.iter().map(|t| (t.added, t.id)).collect();
+            let k = v.len().min(EMPTY_ROWS);
+            if k > 0 {
+                v.select_nth_unstable_by(k - 1, |a, b| b.0.cmp(&a.0));
+                v.truncate(k);
+                v.sort_by(|a, b| b.0.cmp(&a.0));
+            }
+            v.into_iter().map(|(_, id)| id).collect()
+        } else {
+            self.lib.search(&query, EMPTY_ROWS)
+        };
+        let caption = if query.is_empty() { "Recently added" } else if ids.is_empty() { "No songs match" } else { "Songs" };
+        w::section_label(&p, pos2(inner.left() + S1, sr.bottom() + 18.0), caption);
+        let mut y = sr.bottom() + 32.0;
+        for id in ids {
+            let Some(info) = self.info_for(id) else { continue };
+            let rr = Rect::from_min_size(pos2(inner.left() - S2, y), vec2(inner.width() + 2.0 * S2, 52.0));
+            y += 52.0;
+            let resp = ui.interact(rr, Id::new(("empty-row", pid, id)), Sense::click());
+            let (h, _) = w::hover_press(ui, &resp);
+            if h > 0.0 {
+                p.rect_filled(rr, R_MD, with_alpha(Color32::WHITE, 0.06 * h));
+            }
+            let ar = Rect::from_min_size(pos2(rr.left() + S2, rr.center().y - 18.0), vec2(36.0, 36.0));
+            w::art(&p, ar, self.art.cover(info.art, ArtSize::S), R_SM, Color32::WHITE);
+            let tx = ar.right() + S3;
+            let tw = rr.right() - tx - 110.0;
+            w::text(&p, pos2(tx, rr.center().y - 8.0), Align2::LEFT_CENTER, &info.title, body(), TEXT, tw);
+            w::text(&p, pos2(tx, rr.center().y + 9.0), Align2::LEFT_CENTER, &info.artist, small(), TEXT_2, tw);
+            w::text(&p, pos2(rr.right() - 56.0, rr.center().y), Align2::RIGHT_CENTER, &fmt_time(info.duration), small(), TEXT_3, 60.0);
+            let br = Rect::from_center_size(pos2(rr.right() - 26.0, rr.center().y), Vec2::splat(32.0));
+            let bresp = ui.interact(br, Id::new(("empty-add", pid, id)), Sense::click());
+            let add = match pid {
+                Some(_) => w::icon_button_at(ui, br, bresp, icons::PLUS, false, "Add to this playlist").clicked(),
+                None => self.love_button(ui, br, bresp, id).clicked(),
+            };
+            if add || resp.double_clicked() {
+                self.actions.push(match pid {
+                    Some(pid) => Action::AddToPlaylist { pid, ids: vec![id] },
+                    None => Action::ToggleLove(id),
+                });
+            }
+        }
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1712,7 +1793,7 @@ impl App {
             } else if playing_this && h > 0.0 && self.ps.playing {
                 icons::pause(&p, tr.center(), 16.0, with_alpha(TEXT, veil));
             } else if playing_this && self.ps.playing {
-                icons::now_playing_bars(&p, tr.center(), 16.0, ACCENT);
+                self.np_bars(ui, &p, tr.center(), 16.0, ACCENT);
             } else {
                 icons::play(&p, tr.center(), 16.0, with_alpha(TEXT, veil));
             }
@@ -1947,188 +2028,307 @@ impl App {
     // Settings
 
     fn settings_page(&mut self, ui: &mut Ui) -> (f32, String) {
+        let update_waiting = !crate::update::STORE
+            && matches!(self.updater.state(), crate::update::State::Ready { .. } | crate::update::State::Available { .. });
         let out = egui::ScrollArea::vertical()
             .id_salt("settings")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.add_space(TOPBAR_H);
                 let full = ui.available_width();
-                let colw = (full - 2.0 * PAD_X).min(720.0);
+                let origin = ui.cursor().min + vec2(PAD_X, 0.0);
+                let wide = full >= 700.0;
+                let nav_w = if wide { 190.0 } else { 0.0 };
+                let gap = if wide { S8 } else { 0.0 };
+                let colw = (full - 2.0 * PAD_X - nav_w - gap).min(640.0);
+
+                // Title
+                let tr = Rect::from_min_size(origin, vec2(full - 2.0 * PAD_X, 44.0));
+                w::text(ui.painter(), pos2(tr.left(), tr.center().y), Align2::LEFT_CENTER, "Settings", h1(), TEXT, 400.0);
+                let top = tr.bottom() + S5;
+
+                // Sections: a list on the left (or a row of tabs when the window is narrow).
+                let mut nav = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(Rect::from_min_size(pos2(origin.x, top), vec2(if wide { nav_w } else { full - 2.0 * PAD_X }, 400.0)))
+                        .layout(if wide { egui::Layout::top_down(egui::Align::Min) } else { egui::Layout::left_to_right(egui::Align::Center) }),
+                );
+                for sec in SettingsSection::ALL {
+                    let sel = self.settings_section == sec;
+                    let badge = (sec == SettingsSection::Updates && update_waiting).then(|| "New".to_string());
+                    let clicked = if wide {
+                        w::nav_item(&mut nav, sec.icon(), sec.label(), sel, badge).clicked()
+                    } else {
+                        w::pill(&mut nav, sec.label(), None, if sel { PillKind::Secondary } else { PillKind::Ghost }).clicked()
+                    };
+                    if clicked && !sel {
+                        self.settings_section = sec;
+                        self.settings_section_t = ui.input(|i| i.time);
+                    }
+                }
+                let nav_h = nav.min_rect().height();
+
+                // The section, fading in when you switch.
+                let ctop = if wide { top } else { top + nav_h + S5 };
+                let cx = origin.x + nav_w + gap;
+                let t = ((ui.input(|i| i.time) - self.settings_section_t) as f32 / 0.2).clamp(0.0, 1.0);
+                let e = egui::emath::easing::cubic_out(t);
+                if t < 1.0 {
+                    ui.ctx().request_repaint();
+                }
                 let mut inner = ui.new_child(
                     egui::UiBuilder::new()
-                        .max_rect(Rect::from_min_size(ui.cursor().min + vec2(PAD_X, 0.0), vec2(colw, f32::INFINITY)))
+                        .max_rect(Rect::from_min_size(pos2(cx, ctop + 8.0 * (1.0 - e)), vec2(colw, f32::INFINITY)))
                         .layout(egui::Layout::top_down(egui::Align::Min)),
                 );
-                let ui2 = &mut inner;
-                let (r, _) = ui2.allocate_exact_size(vec2(colw, 44.0), Sense::hover());
-                w::text(ui2.painter(), pos2(r.left(), r.center().y), Align2::LEFT_CENTER, "Settings", h1(), TEXT, 400.0);
-                ui2.add_space(S5);
-
-                // Music folder
-                let folder = self.settings.music_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default();
-                self.settings_card(ui2, "Music folder", "Segno plays everything in this folder, including subfolders, and saves downloads here.", |app, ui| {
-                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
-                    ui.painter().rect_filled(r, R_MD, BG);
-                    icons::glyph(ui.painter(), pos2(r.left() + 20.0, r.center().y), icons::FOLDER_OPEN, 16.0, TEXT_2);
-                    w::text(ui.painter(), pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, &folder, body(), TEXT, r.width() - 52.0);
-                    ui.add_space(S3);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = S2;
-                        if w::pill(ui, "Change folder", None, PillKind::Secondary).clicked() {
-                            app.actions.push(Action::PickFolder);
-                        }
-                        if w::pill(ui, "Open in Explorer", None, PillKind::Ghost).clicked() {
-                            app.actions.push(Action::OpenFolder);
-                        }
-                        if w::pill(ui, "Check for new music", None, PillKind::Ghost).clicked() {
-                            app.actions.push(Action::Rescan);
-                        }
-                    });
-                });
-
-                // Playback
-                let mut auto = self.settings.autoplay;
-                self.settings_card(ui2, "Playback", "", |app, ui| {
-                    if toggle_row(ui, "Keep playing when the queue ends", "Plays on through your Songs list, so the music doesn't stop.", &mut auto) {
-                        app.actions.push(Action::SetAutoplay(auto));
-                    }
-                    ui.add_space(S3);
-                    let mut spin = app.settings.spin_record;
-                    if toggle_row(ui, "Spin the record on Now Playing", "Turn off to save a little battery while that screen is open.", &mut spin) {
-                        app.settings.spin_record = spin;
-                        app.settings.save();
-                    }
-                });
-
-                // Close behavior
-                let mut v = self.settings.close_to_tray;
-                self.settings_card(ui2, "When you close the window", "", |app, ui| {
-                    if toggle_row(ui, "Keep playing in the tray while music is playing", "If nothing is playing, closing the window quits Segno.", &mut v) {
-                        app.actions.push(Action::SetCloseToTray(v));
-                    }
-                });
-
-                // Downloads
-                let (version, setup) = {
-                    let s = self.yt.shared.lk();
-                    (s.version.clone(), s.setup.clone())
-                };
-                let status = match (&setup, &version) {
-                    (Setup::Working { label, .. }, _) => format!("{label}…"),
-                    (Setup::Failed(m), _) => m.clone(),
-                    (_, Some(v)) => format!("yt-dlp {v} · saves songs with cover art"),
-                    _ => "Sets itself up the first time you search or download.".into(),
-                };
-                self.settings_card(ui2, "Downloads from YouTube and other sites", &status, |app, ui| {
-                    if version.is_some() {
-                        if w::pill(ui, "Update yt-dlp", Some(icons::REFRESH), PillKind::Secondary).clicked() {
-                            app.actions.push(Action::YtUpdate);
-                            app.actions.push(Action::Toast("Updating yt-dlp".into()));
-                        }
-                    } else if !matches!(setup, Setup::Working { .. }) && w::pill(ui, "Set up now", Some(icons::DOWNLOAD), PillKind::Secondary).clicked() {
-                        app.yt_requested = true;
-                        app.yt.shared.lk().setup = Setup::Unknown;
-                        app.yt.prepare();
-                    }
-                });
-
-                // Updates (the Store version gets them from the Store)
-                if crate::update::STORE {
-                    let status = format!("You're on Segno {}. Updates come from the Microsoft Store.", crate::update::VERSION);
-                    self.settings_card(ui2, "Updates", &status, |app, ui| {
-                        if w::pill(ui, "What's new", Some(icons::SPARKLES), PillKind::Secondary).clicked() {
-                            app.whats_new = Some(crate::changelog::WhatsNew::All);
-                        }
-                    });
-                } else {
-                    use crate::update::{State, VERSION};
-                    let st = self.updater.state();
-                    let status = match &st {
-                        State::Idle => format!("You're on Segno {VERSION}."),
-                        State::Checking => "Checking for updates…".to_string(),
-                        State::UpToDate => format!("You have the latest version, Segno {VERSION}."),
-                        State::Downloading { version, pct } => format!("Downloading Segno {version} · {}%", (pct * 100.0).round() as u32),
-                        State::Ready { version } => format!("Segno {version} is ready. It starts the next time you open Segno."),
-                        State::Available { version } => format!("Segno {version} is out. Get it from the download page."),
-                        State::Failed(m) => m.clone(),
-                    };
-                    let page = self.updater.page();
-                    let mut auto = self.settings.auto_update;
-                    self.settings_card(ui2, "Updates", &status, |app, ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = S2;
-                            match &st {
-                                State::Ready { .. } => {
-                                    let settled = ui.input(|i| i.time) - app.update_ready_at > 0.6;
-                                    if w::pill(ui, "Restart now", Some(icons::REFRESH), PillKind::Primary).clicked() && settled {
-                                        app.actions.push(Action::RestartToUpdate);
-                                    }
-                                    if w::pill(ui, "What's in it", None, PillKind::Ghost).clicked() {
-                                        app.actions.push(Action::OpenUrl(page.clone()));
-                                    }
-                                }
-                                State::Available { version } => {
-                                    if w::pill(ui, &format!("Get Segno {version}"), Some(icons::DOWNLOAD), PillKind::Primary).clicked() {
-                                        app.actions.push(Action::OpenUrl(page.clone()));
-                                    }
-                                }
-                                State::Checking | State::Downloading { .. } => {
-                                    let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
-                                    w::spinner(ui, r.center(), 9.0, TEXT_2);
-                                }
-                                _ => {
-                                    if w::pill(ui, "Check for updates", Some(icons::REFRESH), PillKind::Secondary).clicked() {
-                                        app.actions.push(Action::CheckUpdates);
-                                    }
-                                }
-                            }
-                            if w::pill(ui, "What's new", Some(icons::SPARKLES), PillKind::Ghost).clicked() {
-                                app.whats_new = Some(crate::changelog::WhatsNew::All);
-                            }
-                        });
-                        ui.add_space(S3);
-                        if toggle_row(ui, "Update automatically", "Checks every few hours and downloads new versions in the background.", &mut auto) {
-                            app.actions.push(Action::SetAutoUpdate(auto));
-                        }
-                    });
+                inner.multiply_opacity(e);
+                let sec = self.settings_section;
+                let (hr, _) = inner.allocate_exact_size(vec2(colw, 36.0), Sense::hover());
+                w::text(inner.painter(), pos2(hr.left(), hr.top() + 12.0), Align2::LEFT_CENTER, sec.label(), h2(), TEXT, colw);
+                match sec {
+                    SettingsSection::Library => self.settings_library(&mut inner),
+                    SettingsSection::Playback => self.settings_playback(&mut inner),
+                    SettingsSection::Downloads => self.settings_downloads(&mut inner),
+                    SettingsSection::Updates => self.settings_updates(&mut inner),
+                    SettingsSection::Shortcuts => self.settings_shortcuts(&mut inner),
+                    SettingsSection::About => self.settings_about(&mut inner),
                 }
-
-                // Shortcuts
-                self.settings_card(ui2, "Keyboard shortcuts", "", |_app, ui| {
-                    for (k, d) in [
-                        ("Space", "Play or pause"),
-                        ("Ctrl + →  /  Ctrl + ←", "Next / previous song"),
-                        ("Ctrl + ↑  /  Ctrl + ↓", "Volume up / down"),
-                        ("Ctrl + F", "Search"),
-                        ("Ctrl + M", "Mini player"),
-                        ("Ctrl + B", "Fold or unfold the sidebar"),
-                        ("F11  /  Esc", "Full screen on / off"),
-                        ("Alt + ←", "Back"),
-                        ("Double-click a song", "Play it"),
-                    ] {
-                        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-                        w::text(ui.painter(), pos2(r.left(), r.center().y), Align2::LEFT_CENTER, d, body(), TEXT_2, r.width() * 0.5);
-                        w::text(ui.painter(), pos2(r.right(), r.center().y), Align2::RIGHT_CENTER, k, body_strong(), TEXT, r.width() * 0.5);
-                    }
-                });
-
-                self.settings_card(ui2, "About", &format!("Segno {}. Icons by Lucide, type set in Inter. Downloads use yt-dlp. Only download music you have the right to.", crate::update::VERSION), |_a, _u| {});
-                let used = inner.min_rect().height();
-                ui.add_space(used + S12);
+                let used = (inner.min_rect().bottom() - top).max(if wide { nav_h } else { 0.0 });
+                ui.add_space(used + S5 + S12);
             });
         (out.state.offset.y, "Settings".into())
+    }
+
+    fn settings_library(&mut self, ui: &mut Ui) {
+        let folder = self.settings.music_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default();
+        self.settings_card(ui, "Music folder", "Segno plays everything in this folder, subfolders too, and saves downloads here.", |app, ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+            ui.painter().rect_filled(r, R_MD, BG);
+            icons::glyph(ui.painter(), pos2(r.left() + 20.0, r.center().y), icons::FOLDER_OPEN, 16.0, TEXT_2);
+            w::text(ui.painter(), pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, &folder, body(), TEXT, r.width() - 52.0);
+            ui.add_space(S3);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = S2;
+                if w::pill(ui, "Change folder", None, PillKind::Secondary).clicked() {
+                    app.actions.push(Action::PickFolder);
+                }
+                if w::pill(ui, "Open folder", None, PillKind::Ghost).clicked() {
+                    app.actions.push(Action::OpenFolder);
+                }
+                if w::pill(ui, "Look for new music", Some(icons::REFRESH), PillKind::Ghost).clicked() {
+                    app.actions.push(Action::Rescan);
+                }
+            });
+        });
+    }
+
+    fn settings_playback(&mut self, ui: &mut Ui) {
+        let mut auto = self.settings.autoplay;
+        let mut spin = self.settings.spin_record;
+        let mut tray = self.settings.close_to_tray;
+        self.settings_card(ui, "", "", |app, ui| {
+            if toggle_row(ui, "Keep playing when the queue ends", "Carries on with your library, so the music doesn't stop.", &mut auto) {
+                app.actions.push(Action::SetAutoplay(auto));
+            }
+            settings_sep(ui);
+            if toggle_row(ui, "Keep playing in the tray", "Close the window and the music keeps going. If nothing plays, Segno quits.", &mut tray) {
+                app.actions.push(Action::SetCloseToTray(tray));
+            }
+            settings_sep(ui);
+            if toggle_row(ui, "Spin the record", "On Now Playing and full screen. Turn off to save a little battery.", &mut spin) {
+                app.settings.spin_record = spin;
+                app.settings.save();
+            }
+        });
+    }
+
+    fn settings_downloads(&mut self, ui: &mut Ui) {
+        let (version, setup) = {
+            let s = self.yt.shared.lk();
+            (s.version.clone(), s.setup.clone())
+        };
+        let status = match (&setup, &version) {
+            (Setup::Working { label, .. }, _) => format!("{label}…"),
+            (Setup::Failed(m), _) => m.clone(),
+            (_, Some(v)) => format!("Ready · yt-dlp {v}"),
+            _ => "Sets itself up the first time you search or download.".into(),
+        };
+        self.settings_card(ui, "YouTube, SoundCloud and other sites", &status, |app, ui| {
+            if version.is_some() {
+                if w::pill(ui, "Update yt-dlp", Some(icons::REFRESH), PillKind::Secondary).on_hover_text("Get the newest yt-dlp if a site stops working").clicked() {
+                    app.actions.push(Action::YtUpdate);
+                    app.actions.push(Action::Toast("Updating yt-dlp".into()));
+                }
+            } else if matches!(setup, Setup::Working { .. }) {
+                let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
+                w::spinner(ui, r.center(), 9.0, TEXT_2);
+            } else if w::pill(ui, "Set up now", Some(icons::DOWNLOAD), PillKind::Secondary).clicked() {
+                app.yt_requested = true;
+                app.yt.shared.lk().setup = Setup::Unknown;
+                app.yt.prepare();
+            }
+        });
+        self.settings_card(ui, "", "", |_app, ui| {
+            ui.horizontal_top(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(22.0, 20.0), Sense::hover());
+                icons::glyph(ui.painter(), r.center(), icons::INFO, 15.0, TEXT_2);
+                ui.add(egui::Label::new(
+                    egui::RichText::new("Only download music you have the right to, like your own songs, free releases, or music the artist lets you download.")
+                        .font(small())
+                        .color(TEXT_2),
+                ).wrap());
+            });
+        });
+    }
+
+    fn settings_updates(&mut self, ui: &mut Ui) {
+        if crate::update::STORE {
+            let status = format!("You're on Segno {}. Updates come from the Microsoft Store.", crate::update::VERSION);
+            self.settings_card(ui, "", &status, |app, ui| {
+                if w::pill(ui, "What's new", Some(icons::SPARKLES), PillKind::Secondary).clicked() {
+                    app.whats_new = Some(crate::changelog::WhatsNew::All);
+                }
+            });
+            return;
+        }
+        use crate::update::{State, VERSION};
+        let st = self.updater.state();
+        let status = match &st {
+            State::Idle => format!("You're on Segno {VERSION}."),
+            State::Checking => "Checking for updates…".to_string(),
+            State::UpToDate => format!("You have the latest version, Segno {VERSION}."),
+            State::Downloading { version, pct } => format!("Downloading Segno {version} · {}%", (pct * 100.0).round() as u32),
+            State::Ready { version } => format!("Segno {version} is ready. It starts the next time you open Segno."),
+            State::Available { version } => format!("Segno {version} is out. Get it from the download page."),
+            State::Failed(m) => m.clone(),
+        };
+        let page = self.updater.page();
+        let mut auto = self.settings.auto_update;
+        self.settings_card(ui, "", &status, |app, ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = S2;
+                match &st {
+                    State::Ready { .. } => {
+                        let settled = ui.input(|i| i.time) - app.update_ready_at > 0.6;
+                        if w::pill(ui, "Restart now", Some(icons::REFRESH), PillKind::Primary).clicked() && settled {
+                            app.actions.push(Action::RestartToUpdate);
+                        }
+                    }
+                    State::Available { version } => {
+                        if w::pill(ui, &format!("Get Segno {version}"), Some(icons::DOWNLOAD), PillKind::Primary).clicked() {
+                            app.actions.push(Action::OpenUrl(page.clone()));
+                        }
+                    }
+                    State::Checking | State::Downloading { .. } => {
+                        let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
+                        w::spinner(ui, r.center(), 9.0, TEXT_2);
+                    }
+                    _ => {
+                        if w::pill(ui, "Check for updates", Some(icons::REFRESH), PillKind::Secondary).clicked() {
+                            app.actions.push(Action::CheckUpdates);
+                        }
+                    }
+                }
+                if w::pill(ui, "What's new", Some(icons::SPARKLES), PillKind::Ghost).clicked() {
+                    app.whats_new = Some(crate::changelog::WhatsNew::All);
+                }
+            });
+            settings_sep(ui);
+            if toggle_row(ui, "Update automatically", "Checks every few hours and gets new versions in the background.", &mut auto) {
+                app.actions.push(Action::SetAutoUpdate(auto));
+            }
+        });
+    }
+
+    fn settings_shortcuts(&mut self, ui: &mut Ui) {
+        self.settings_card(ui, "", "", |_app, ui| {
+            let keys = [
+                ("Space", "Play or pause"),
+                ("Ctrl + →  /  Ctrl + ←", "Next / previous song"),
+                ("Ctrl + ↑  /  Ctrl + ↓", "Volume up / down"),
+                ("Ctrl + F", "Search"),
+                ("Ctrl + M", "Mini player"),
+                ("Ctrl + B", "Fold or unfold the sidebar"),
+                ("F11  /  Esc", "Full screen on / off"),
+                ("Alt + ←", "Back"),
+                ("Double-click a song", "Play it"),
+            ];
+            for (i, (k, d)) in keys.iter().enumerate() {
+                if i > 0 {
+                    settings_sep(ui);
+                }
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                w::text(ui.painter(), pos2(r.left(), r.center().y), Align2::LEFT_CENTER, d, body(), TEXT_2, r.width() * 0.5);
+                // Keys sit in a small key cap.
+                let kw = w::text_width(ui, k, small_strong()) + 16.0;
+                let kr = Rect::from_center_size(pos2(r.right() - kw / 2.0, r.center().y), vec2(kw, 24.0));
+                ui.painter().rect_filled(kr, R_SM + 2.0, BG);
+                ui.painter().rect_stroke(kr, R_SM + 2.0, Stroke::new(1.0, HAIRLINE), egui::StrokeKind::Inside);
+                w::text(ui.painter(), kr.center(), Align2::CENTER_CENTER, k, small_strong(), TEXT, kw);
+            }
+        });
+    }
+
+    fn settings_about(&mut self, ui: &mut Ui) {
+        self.settings_card(ui, "", "", |app, ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::hover());
+            let mark = Rect::from_min_size(pos2(r.left(), r.center().y - 26.0), vec2(52.0, 52.0));
+            crate::paint_logo(ui.painter(), mark);
+            w::text(ui.painter(), pos2(mark.right() + S4, r.center().y - 11.0), Align2::LEFT_CENTER, "Segno", h2(), TEXT, 300.0);
+            w::text(
+                ui.painter(),
+                pos2(mark.right() + S4, r.center().y + 12.0),
+                Align2::LEFT_CENTER,
+                &format!("Version {} · Made by {}", crate::update::VERSION, ABOUT_AUTHOR),
+                small(),
+                TEXT_2,
+                r.width() - 80.0,
+            );
+            ui.add_space(S3);
+            ui.label(
+                egui::RichText::new("A light music player for your own music and music online. Free, open source, no account.")
+                    .font(body())
+                    .color(TEXT_2),
+            );
+            ui.add_space(S4);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(S2, S2);
+                if w::pill(ui, "Source code", Some(icons::LINK), PillKind::Secondary).on_hover_text(ABOUT_REPO).clicked() {
+                    app.actions.push(Action::OpenUrl(ABOUT_REPO.into()));
+                }
+                if w::pill(ui, "Email me", None, PillKind::Ghost).on_hover_text(ABOUT_EMAIL).clicked() {
+                    app.actions.push(Action::OpenUrl(format!("mailto:{ABOUT_EMAIL}?subject=Segno")));
+                }
+                if w::pill(ui, "Report a problem", None, PillKind::Ghost).clicked() {
+                    app.actions.push(Action::OpenUrl(format!("{ABOUT_REPO}/issues")));
+                }
+            });
+            ui.add_space(S3);
+            ui.label(egui::RichText::new(format!("Contact: {ABOUT_EMAIL}")).font(small()).color(TEXT_3));
+        });
+        self.settings_card(ui, "Thanks to", "", |_app, ui| {
+            ui.label(
+                egui::RichText::new("Icons by Lucide. Type set in Inter. Downloads use yt-dlp. Released under the MIT license.")
+                    .font(small())
+                    .color(TEXT_2),
+            );
+        });
     }
 
     fn settings_card(&mut self, ui: &mut Ui, title: &str, sub: &str, content: impl FnOnce(&mut App, &mut Ui)) {
         let frame = egui::Frame::new().fill(RAISED).corner_radius(R_LG).inner_margin(S5);
         frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new(title).font(body_strong()).color(TEXT));
+            if !title.is_empty() {
+                ui.label(egui::RichText::new(title).font(body_strong()).color(TEXT));
+            }
             if !sub.is_empty() {
                 ui.add_space(2.0);
                 ui.label(egui::RichText::new(sub).font(small()).color(TEXT_2));
             }
-            ui.add_space(S3);
+            if !title.is_empty() || !sub.is_empty() {
+                ui.add_space(S3);
+            }
             content(self, ui);
         });
         ui.add_space(S4);
@@ -2251,6 +2451,53 @@ fn p_hint(ui: &Ui, r: Rect, h: f32, q: &str) {
     icons::glyph(p, pos2(r.left() + 24.0, r.center().y), icons::SEARCH, 16.0, ACCENT);
     w::text(p, pos2(r.left() + 46.0, r.center().y), Align2::LEFT_CENTER, &format!("Search YouTube for “{q}”"), body(), TEXT, r.width() - 140.0);
     w::text(p, pos2(r.right() - S4, r.center().y), Align2::RIGHT_CENTER, "Enter ↵", small(), TEXT_3, 80.0);
+}
+
+/// Who made Segno and where to find it (Settings > About).
+const ABOUT_AUTHOR: &str = "Feras Hania";
+const ABOUT_REPO: &str = "https://github.com/ferasbusiness666/segno";
+const ABOUT_EMAIL: &str = "feroomon10400@gmail.com";
+
+/// The parts of Settings, each on its own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SettingsSection {
+    #[default]
+    Library,
+    Playback,
+    Downloads,
+    Updates,
+    Shortcuts,
+    About,
+}
+
+impl SettingsSection {
+    const ALL: [SettingsSection; 6] = [Self::Library, Self::Playback, Self::Downloads, Self::Updates, Self::Shortcuts, Self::About];
+    fn label(self) -> &'static str {
+        match self {
+            Self::Library => "Library",
+            Self::Playback => "Playback",
+            Self::Downloads => "Downloads",
+            Self::Updates => "Updates",
+            Self::Shortcuts => "Shortcuts",
+            Self::About => "About",
+        }
+    }
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Library => icons::FOLDER_OPEN,
+            Self::Playback => icons::MUSIC,
+            Self::Downloads => icons::DOWNLOAD,
+            Self::Updates => icons::REFRESH,
+            Self::Shortcuts => icons::INFO,
+            Self::About => icons::SPARKLES,
+        }
+    }
+}
+
+/// A thin line between rows inside a settings card.
+fn settings_sep(ui: &mut Ui) {
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 13.0), Sense::hover());
+    ui.painter().line_segment([pos2(r.left(), r.center().y), pos2(r.right(), r.center().y)], Stroke::new(1.0, HAIRLINE));
 }
 
 /// A settings row with a switch. Returns true when toggled.

@@ -27,7 +27,7 @@ fn round_button(ui: &Ui, rect: Rect, id: Id, icon: &str, active: bool, tip: &str
     let p = ui.painter();
     p.circle_filled(rect.center(), rect.width() / 2.0, with_alpha(Color32::BLACK, 0.35 + 0.15 * h));
     let c = if active { ACCENT } else { lerp_color(TEXT_2, TEXT, h) };
-    icons::glyph(p, rect.center(), icon, rect.width() * 0.5 * (1.0 - 0.08 * pr), c);
+    icons::glyph(p, rect.center(), icon, rect.width() * 0.5 * (1.0 + 0.08 * h - 0.08 * pr), c);
     resp.on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip)
 }
 
@@ -45,8 +45,9 @@ impl App {
         self.vinyl_angle
     }
 
-    /// The record and its sleeve, centered on `c`. Clicking either plays or pauses.
-    fn draw_record(&mut self, ui: &Ui, c: Pos2, s: f32, t: &NowInfo, angle: f32) {
+    /// The record and its sleeve, centered on `c`. Clicking either plays or pauses. While the
+    /// song changes, the old cover and label fade into the new ones.
+    fn draw_record(&mut self, ui: &Ui, c: Pos2, s: f32, t: &NowInfo, angle: f32, swap: Option<&(NowInfo, f32)>) {
         let out = ui.ctx().animate_bool_with_time(Id::new("vinyl-out"), self.ps.playing, 0.7);
         let out = egui::emath::easing::cubic_in_out(out);
         let sleeve = Rect::from_min_size(pos2(c.x - s * SPREAD / 2.0, c.y - s / 2.0), Vec2::splat(s));
@@ -54,10 +55,21 @@ impl App {
         let rc = sleeve.center() + vec2(s * (OUT_PAUSED + (OUT_PLAYING - OUT_PAUSED) * out), 0.0);
         let p = ui.painter();
         let tex = self.art.cover(t.art, ArtSize::L);
-        let label = if t.color.is_some() { theme::wash_from_art(t.color) } else { ACCENT_LO };
-        w::vinyl(p, rc, r, tex, label, angle);
+        let label_of = |i: &NowInfo| if i.color.is_some() { theme::wash_from_art(i.color) } else { ACCENT_LO };
+        let old = swap.map(|(o, e)| (self.art.cover(o.art, ArtSize::L), label_of(o), *e));
+        w::vinyl(p, rc, r, tex, label_of(t), angle);
+        if let Some((otex, olabel, e)) = old {
+            w::vinyl_label(p, rc, r, otex, olabel, angle, 1.0 - e);
+        }
         w::soft_shadow(p, sleeve, 6.0, 1.1);
-        w::art(p, sleeve, tex, 6.0, Color32::WHITE);
+        match old {
+            // The new cover comes in over the old one.
+            Some((otex, _, e)) => {
+                w::art(p, sleeve, otex, 6.0, Color32::WHITE);
+                w::art(p, sleeve, tex, 6.0, with_alpha(Color32::WHITE, e));
+            }
+            None => w::art(p, sleeve, tex, 6.0, Color32::WHITE),
+        }
         p.rect_stroke(sleeve, 6.0, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.07)), egui::StrokeKind::Inside);
         let hit = Rect::from_min_max(sleeve.min, pos2(rc.x + r, sleeve.bottom()));
         let resp = ui.interact(hit, Id::new("np-record"), Sense::click());
@@ -70,9 +82,24 @@ impl App {
         }
     }
 
-    /// Title, then "artist · album" (the artist opens their page). Centered on `c`.
-    fn song_titles(&mut self, ui: &Ui, t: &NowInfo, c: Pos2, max_w: f32, size: f32) -> f32 {
-        let p = ui.painter();
+    /// Title, then "artist · album" (the artist opens their page). Centered on `c`. While the
+    /// song changes, the old title rises and fades as the new one comes up from below.
+    fn song_titles(&mut self, ui: &Ui, t: &NowInfo, c: Pos2, max_w: f32, size: f32, swap: Option<&(NowInfo, f32)>) -> f32 {
+        let mut e = 1.0;
+        if let Some((old, k)) = swap {
+            e = *k;
+            let a = (1.0 - e * 2.5).max(0.0);
+            let oc = c - vec2(0.0, 16.0 * e);
+            let p = ui.painter();
+            w::text(p, oc, Align2::CENTER_TOP, &old.title, FontId::new(size, bold()), with_alpha(TEXT, a), max_w);
+            let sub_size = (size * 0.6).max(14.0);
+            w::text(p, pos2(oc.x, oc.y + size * 1.35), Align2::CENTER_TOP, &old.artist, FontId::proportional(sub_size), with_alpha(TEXT_2, a), max_w);
+        }
+        let a = ((e - 0.2) / 0.8).clamp(0.0, 1.0);
+        let c = c + vec2(0.0, 16.0 * (1.0 - e));
+        let mut painter = ui.painter().clone();
+        painter.multiply_opacity(a);
+        let p = &painter;
         w::text(p, c, Align2::CENTER_TOP, &t.title, FontId::new(size, bold()), TEXT, max_w);
         let sub = if t.preview.is_some() {
             let site = t.preview.as_ref().map(|i| i.source()).unwrap_or_default();
@@ -97,7 +124,7 @@ impl App {
                 self.actions.push(Action::Go(Route::Artist(key)));
             }
         }
-        sr.bottom()
+        sr.bottom() - 16.0 * (1.0 - e)
     }
 
     /// Love (or download, for a song that isn't saved yet) and a "…" menu, centered on `c`.
@@ -162,7 +189,15 @@ impl App {
         };
         let angle = self.turn_record(ui.ctx());
         let p = ui.painter().clone();
-        self.blurred_cover(&p, rect, t.art, 0.38, None);
+        // A new song: everything cross-fades over half a second.
+        let swap = self.song_swap(ui.ctx(), 0.5);
+        match &swap {
+            Some((old, e)) => {
+                self.blurred_cover(&p, rect, old.art, 0.38 * (1.0 - e), None);
+                self.blurred_cover(&p, rect, t.art, 0.38 * e, None);
+            }
+            None => self.blurred_cover(&p, rect, t.art, 0.38, None),
+        }
         w::vgradient(&p, rect, R_LG, &[(0.0, with_alpha(Color32::BLACK, 0.10)), (0.6, with_alpha(Color32::BLACK, 0.30)), (1.0, with_alpha(Color32::BLACK, 0.55))]);
 
         // Top right: Up next and full screen.
@@ -187,8 +222,8 @@ impl App {
         let s = ((stage.width() - S4) / SPREAD).min(stage.height() - info_h - S6).clamp(96.0, 420.0);
         let top = stage.top() + ((stage.height() - s - info_h) / 2.0).max(S2);
         let c = pos2(stage.center().x, top + s / 2.0);
-        self.draw_record(ui, c, s, &t, angle);
-        let bottom = self.song_titles(ui, &t, pos2(c.x, top + s + S8), stage.width(), 26.0);
+        self.draw_record(ui, c, s, &t, angle, swap.as_ref());
+        let bottom = self.song_titles(ui, &t, pos2(c.x, top + s + S8), stage.width(), 26.0, swap.as_ref());
         self.song_actions(ui, &t, pos2(c.x, bottom + 28.0), "np");
 
         if qt > 0.01 {
@@ -321,9 +356,21 @@ impl App {
         let angle = self.turn_record(&ctx);
 
         // Background: the cover, blurred and slowly turning, under a dark veil.
+        let swap = self.song_swap(&ctx, 0.6);
         let wash = theme::wash_from_art(t.as_ref().and_then(|t| t.color));
+        let wash = match &swap {
+            Some((old, e)) => lerp_color(theme::wash_from_art(old.color), wash, *e),
+            None => wash,
+        };
         p.rect_filled(full, 0.0, lerp_color(wash, BG, 0.4));
-        self.blurred_cover(&p, full, t.as_ref().and_then(|t| t.art), 0.9, Some(self.backdrop_angle));
+        let turn = Some(self.backdrop_angle);
+        match &swap {
+            Some((old, e)) => {
+                self.blurred_cover(&p, full, old.art, 0.9 * (1.0 - e), turn);
+                self.blurred_cover(&p, full, t.as_ref().and_then(|t| t.art), 0.9 * e, turn);
+            }
+            None => self.blurred_cover(&p, full, t.as_ref().and_then(|t| t.art), 0.9, turn),
+        }
         w::vgradient(&p, full, 0.0, &[(0.0, with_alpha(Color32::BLACK, 0.45)), (0.45, with_alpha(Color32::BLACK, 0.32)), (1.0, with_alpha(Color32::BLACK, 0.78))]);
         let bg = ui.interact(full, Id::new("imm-bg"), Sense::click());
         if bg.double_clicked() {
@@ -385,9 +432,9 @@ impl App {
         let info_h = egui::lerp(TITLE_ONLY..=WITH_CONTROLS, egui::emath::easing::cubic_in_out(ch));
         let top = stage.top() + ((stage.height() - s - info_h) / 2.0).max(0.0);
         let c = pos2(stage.center().x, top + s / 2.0);
-        self.draw_record(ui, c, s, &t, angle);
+        self.draw_record(ui, c, s, &t, angle, swap.as_ref());
         let title_size = if s > 400.0 { 32.0 } else { 26.0 };
-        let tb = self.song_titles(ui, &t, pos2(c.x, top + s + 40.0), stage.width(), title_size);
+        let tb = self.song_titles(ui, &t, pos2(c.x, top + s + 40.0), stage.width(), title_size, swap.as_ref());
 
         // Seek bar, times, then the transport row with love on the left and volume on the right.
         let cw = (s * SPREAD).clamp(360.0, 620.0).min(stage.width());

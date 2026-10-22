@@ -160,12 +160,21 @@ fn rounded_poly(p: &Painter, pts: &[Pos2], r: f32, color: Color32) {
 }
 
 /// A small three-bar "now playing" mark (static: no looping animation, to save battery).
-pub fn now_playing_bars(p: &Painter, c: Pos2, size: f32, color: Color32) {
+/// The "now playing" bars. `motion` 0 = still (paused), 1 = bouncing (playing), in between
+/// while they settle or start; `t` is the time in seconds.
+pub fn now_playing_bars(p: &Painter, c: Pos2, size: f32, color: Color32, t: f64, motion: f32) {
     let bw = size * 0.18;
     let gap = size * 0.14;
-    let heights = [0.55, 1.0, 0.75];
+    let still = [0.55, 1.0, 0.75];
+    // Each bar bounces at its own pace, from two waves mixed, so it never looks like a loop.
+    let speeds = [(7.3, 4.1), (5.9, 9.7), (8.6, 5.3)];
     let total = bw * 3.0 + gap * 2.0;
-    for (i, h) in heights.iter().enumerate() {
+    for i in 0..3 {
+        let (a, b) = speeds[i];
+        let k = i as f64 * 1.7;
+        let wave = 0.5 + 0.3 * (t * a + k).sin() as f32 + 0.2 * (t * b + k * 2.3).sin() as f32;
+        let moving = 0.25 + 0.75 * wave.clamp(0.0, 1.0);
+        let h = still[i] + (moving - still[i]) * motion;
         let x = c.x - total / 2.0 + i as f32 * (bw + gap);
         let hh = size * h;
         p.rect_filled(

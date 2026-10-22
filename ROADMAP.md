@@ -27,7 +27,7 @@ The pitch: **one app for your own music and online music. Light, fast, free, no 
 - ✅ Play online without downloading, download when you want
 - ✅ Save playlists from links: they play online, download one song or all of them, files take their place
 - ✅ Playlist covers from the site, or your own picture
-- ✅ "For you": new songs based on what you play
+- 🟡 "For you": hidden in 1.1.7. It used YouTube mixes from what you play, which wasn't useful enough. Bring it back when there's a better free source (ideas: Last.fm similar artists, ListenBrainz)
 - ✅ Downloads list kept between restarts, unfinished downloads continue
 - ✅ "Only download what you're allowed to" notice before the first download
 
@@ -62,6 +62,9 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 - ✅ **Updates install even without "Restart now"**: closed or shut down? It installs the next time you open Segno (1.1.4)
 - ✅ **Better animations across the app**: rows slide in on page open, menus grow in, sliding sidebar highlight, player bar song change, queue rows glide, button press (1.1.6)
 - ✅ **Smooth volume**: fades on play, pause, skip, seek and volume changes, no clicks (1.1.6)
+- ✅ **Settings in sections** with an About part (author, source code, contact) (1.1.7)
+- ✅ **Reorder playlists** in the sidebar by dragging (1.1.7)
+- ✅ **Moving "now playing" bars**, Now Playing fades between songs, add songs from an empty playlist (1.1.7)
 - ✅ **Check for updates more often**: every 3 hours instead of once a day (1.1.3)
 
 ---
