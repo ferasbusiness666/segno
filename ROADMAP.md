@@ -165,7 +165,7 @@ In this order:
 
 ## Outside the app
 
-- 🟡 **Website**: plan ready (dark and bold like cider.sh, pink-red accent, email signup near the top going to Google Sheets, socials in the footer, "Made by Feras Hania"). Not built yet. Free subdomain first, segnomusic.app later. Email form: Google Sheet "Segno emails" with an Apps Script web app, POST `email` (and a hidden `website` field for bots) to https://script.google.com/macros/s/AKfycbxvFcS3lS_x1E3Le78fC-EDkydAy3mfSmWmqOkU8JWjTNenniW6h61SkDriBRBKeHLk/exec. Still to do: say in PRIVACY.md what the email list keeps and how to be removed.
+- ✅ **Website**: live at https://segnomusic.pages.dev (Cloudflare Pages project `segnomusic`, repo `segno-website`). Designed in Claude Design, turned into plain HTML/CSS/JS. Has the email form (Google Sheet "Segno emails" through Apps Script), crypto donations (popup after the first download and a Support section, addresses checked), Privacy Policy and Terms of Use. Domain segnomusic.app later.
 - 🟡 **Microsoft Store**: package build worked, then put on hold until Partner Center verification works. Restore it from the git history ("Put the Microsoft Store package on hold" commit). The Store may reject apps that download from YouTube.
 - ⬜ **Domain**: segnomusic.app not bought yet
 - ✅ **New logo** (1.1.8): the pink record. Files, colours and rules in `brand/`
