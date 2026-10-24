@@ -25,10 +25,12 @@ use std::sync::OnceLock;
 
 static LOGO: OnceLock<egui::TextureHandle> = OnceLock::new();
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon_256.png");
+/// The small cut of the logo (no shine, bigger play mark) for the tray, where it's 16–24 px.
+const ICON_SMALL_PNG: &[u8] = include_bytes!("../assets/icon_32.png");
 
 /// The app icon as RGBA at `size` px (window and tray icons).
 pub fn app_icon(size: u32) -> (Vec<u8>, u32) {
-    let img = image::load_from_memory(ICON_PNG).expect("icon");
+    let img = image::load_from_memory(if size <= 32 { ICON_SMALL_PNG } else { ICON_PNG }).expect("icon");
     let img = img.resize_exact(size, size, image::imageops::FilterType::Lanczos3).to_rgba8();
     (img.into_raw(), size)
 }

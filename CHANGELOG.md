@@ -9,6 +9,12 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.8
+
+### New
+- A new logo: a pink record with a play mark and two lines of shine. It's the app icon, the taskbar icon and the logo inside Segno.
+- At small sizes (the taskbar tray), a simpler version keeps the icon sharp.
+
 ## 1.1.7
 
 ### New

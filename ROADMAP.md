@@ -104,4 +104,5 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 - 🟡 **Website**: plan ready (dark and bold like cider.sh, pink-red accent, email signup near the top going to Google Sheets, socials in the footer, "Made by Feras Hania"). Not built yet. Free subdomain first, segnomusic.app later.
 - 🟡 **Microsoft Store**: package build worked, then put on hold until Partner Center verification works. Restore it from the git history ("Put the Microsoft Store package on hold" commit). The Store may reject apps that download from YouTube.
 - ⬜ **Domain**: segnomusic.app not bought yet
+- ✅ **New logo** (1.1.8): the pink record. Files, colours and rules in `brand/`
 - ⬜ **Screenshots** for the website and README
