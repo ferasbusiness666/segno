@@ -129,6 +129,12 @@ In this order:
 - ⬜ **Online songs start sooner**: start playing while the song is still coming in, not after
 - ⬜ **Volume levelling**: loud and quiet songs play at the same level
 - ⬜ **Crossfade and gapless playback**: no gap between album songs
+- ⬜ **No stutter when the laptop lags**: much better since the 150 ms output buffer, but music
+  still stutters when the laptop freezes for longer than that (reported on Feras's i3 laptop).
+  The songs are decoded inside the audio callback, so a long stall empties the buffer. Fix:
+  decode a second or two ahead on its own thread (the callback only copies samples), and ask
+  Windows to give the audio thread priority (MMCSS "Pro Audio"). Do it together with crossfade
+  and gapless, which change the same part of the player.
 - ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders
 - ⬜ **Discord status**: "Listening to … on Segno"
 - ⬜ **Wrong match? Pick another**: for imported songs (Spotify links) that found the wrong video
