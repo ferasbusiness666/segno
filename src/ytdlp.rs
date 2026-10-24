@@ -148,9 +148,29 @@ fn jobs_path() -> PathBuf {
 }
 
 fn save_jobs(jobs: &[Job]) {
-    // Newest 300 are plenty of history.
-    let start = jobs.len().saturating_sub(300);
-    crate::store::save_json(&jobs_path(), &jobs[start..].to_vec());
+    crate::store::save_json(&jobs_path(), &jobs_to_keep(jobs));
+}
+
+/// How many finished downloads (done or failed) the list keeps.
+const HISTORY: usize = 300;
+
+/// What's saved: every download that hasn't finished yet, however many there are, and the
+/// newest finished ones up to `HISTORY`, in their order. (Only keeping the newest 300 of
+/// everything used to drop songs still waiting when a big playlist was queued.)
+fn jobs_to_keep(jobs: &[Job]) -> Vec<Job> {
+    let finished = |j: &Job| matches!(j.status, JobStatus::Done(_) | JobStatus::Failed(_));
+    let mut drop = jobs.iter().filter(|j| finished(j)).count().saturating_sub(HISTORY);
+    jobs.iter()
+        .filter(|j| {
+            if drop > 0 && finished(j) {
+                drop -= 1;
+                false
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect()
 }
 
 /// Load the saved list. Downloads that were still going when Segno closed start again.
@@ -1226,7 +1246,14 @@ fn item_from(v: &Value, fallback_channel: &str, root_ie: &str, link: &str) -> Op
     if page.is_empty() {
         return None;
     }
-    let raw_id = str_of(v, &["id"]).unwrap_or_else(|| format!("{:x}", crate::store::hash_bytes(page.as_bytes())));
+    // yt-dlp's Generic extractor (direct file links, sites it doesn't know) names a song after
+    // its file, so ".../album-a/song.mp3" and ".../album-b/song.mp3" both came out as "song"
+    // and were treated as one song. Those are told apart by their whole link instead.
+    let generic = ie.is_empty() || ie.eq_ignore_ascii_case("generic");
+    let raw_id = match str_of(v, &["id"]) {
+        Some(id) if !generic => id,
+        _ => format!("{:x}", crate::store::hash_bytes(page.as_bytes())),
+    };
     let site = site_from_extractor(&ie).unwrap_or_else(|| site_from_url(&page));
     let slug: String = site.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     let title = if title.is_empty() { title_from_url(&page) } else { title };
@@ -2022,6 +2049,43 @@ mod tests {
 
     fn item(id: &str) -> YtItem {
         YtItem { id: id.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn generic_links_are_told_apart_by_their_link() {
+        let song = |url: &str| serde_json::json!({ "extractor_key": "Generic", "id": "song", "title": "song", "webpage_url": url });
+        let (a, _) = parse_results(&song("https://example.test/album-a/song.mp3"), "https://example.test/album-a/song.mp3");
+        let (b, _) = parse_results(&song("https://example.test/album-b/song.mp3"), "https://example.test/album-b/song.mp3");
+        let (a2, _) = parse_results(&song("https://example.test/album-a/song.mp3"), "https://example.test/album-a/song.mp3");
+        assert_eq!((a.len(), b.len()), (1, 1));
+        assert_ne!(a[0].id, b[0].id);
+        assert_ne!(a[0].stem(), b[0].stem());
+        assert_eq!(a[0].id, a2[0].id, "the same link is the same song every time");
+        // A preview saved for one isn't used for the other.
+        let saved = serde_json::json!({ PREVIEW_ID: a[0].id.clone() });
+        assert!(is_entry_for(&saved, &a[0]) && !is_entry_for(&saved, &b[0]));
+        // Sites with real ids keep them.
+        let sc = serde_json::json!({ "extractor_key": "Soundcloud", "id": "111", "title": "T", "webpage_url": "https://soundcloud.com/x/t" });
+        assert_eq!(parse_results(&sc, "https://soundcloud.com/x/t").0[0].id, "soundcloud:111");
+    }
+
+    #[test]
+    fn unfinished_downloads_are_always_kept() {
+        let job = |uid: u64, status: JobStatus| Job { uid, item: item(&format!("x:{uid}")), status, playlist: None };
+        // 400 finished downloads, then 301 still waiting and one going.
+        let mut jobs: Vec<Job> = (0..400).map(|i| job(i, JobStatus::Done(PathBuf::from("a.m4a")))).collect();
+        jobs.extend((400..701).map(|i| job(i, JobStatus::Waiting)));
+        jobs.push(job(701, JobStatus::Downloading { pct: 0.5, speed: String::new() }));
+        let kept = jobs_to_keep(&jobs);
+        let waiting = kept.iter().filter(|j| !matches!(j.status, JobStatus::Done(_) | JobStatus::Failed(_))).count();
+        assert_eq!(waiting, 302, "every unfinished download is kept");
+        let done: Vec<u64> = kept.iter().filter(|j| matches!(j.status, JobStatus::Done(_))).map(|j| j.uid).collect();
+        assert_eq!(done.len(), HISTORY);
+        assert_eq!(done[0], 100, "the oldest finished ones go first");
+        // Order is kept.
+        assert!(kept.windows(2).all(|w| w[0].uid < w[1].uid));
+        // A short list is kept as it is.
+        assert_eq!(jobs_to_keep(&jobs[..10]).len(), 10);
     }
 
     #[test]

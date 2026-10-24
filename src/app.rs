@@ -614,7 +614,7 @@ impl App {
                 art: t.art,
                 color: t.color,
                 preview: None,
-                artist_key: Some(library::artist_key(t.primary_artist())),
+                artist_key: Some(t.artist_key()),
             });
         }
         let tr = self.transient.get(&id)?;

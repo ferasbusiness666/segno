@@ -9,6 +9,14 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.10
+
+### Fixed
+- Two songs from direct links with the same file name (like ".../album-a/song.mp3" and ".../album-b/song.mp3") were treated as one song. Each link is its own song now.
+- Queueing more than 300 downloads could lose the oldest ones still waiting when Segno closed. Every unfinished download is kept now.
+- Adding, changing or removing a cover picture (cover.jpg, folder.png…) in a song's folder now updates its art right away.
+- "Go to artist" on a song with no artist opens the Unknown artist page instead of nothing.
+
 ## 1.1.9
 
 ### Fixed

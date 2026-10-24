@@ -32,7 +32,19 @@ pub struct Track {
     pub color: Option<[u8; 3]>,
     #[serde(default)]
     pub yt_id: Option<String>,
+    /// The art is the picture in the song's folder (cover.jpg…), not art inside the file.
+    #[serde(default)]
+    pub folder_art: bool,
+    /// For songs without art of their own: a fingerprint of the folder picture they were last
+    /// given (`NO_COVER` if the folder had none), so a new or changed picture is noticed.
+    /// For songs with art of their own, anything but 0 means "nothing to check".
+    /// 0: saved before 1.1.10, not checked yet.
+    #[serde(default)]
+    pub cover_sig: u64,
 }
+
+/// `cover_sig` of a folder with no cover picture.
+const NO_COVER: u64 = 1;
 
 impl Track {
     fn with_path(mut self, p: &Path) -> Self {
@@ -54,7 +66,25 @@ impl Track {
         };
         first_artist(a)
     }
+
+    /// The artist the song is listed under on the Artists page ("Unknown artist" if none).
+    pub fn artist_name(&self) -> &str {
+        let n = self.primary_artist();
+        if n.is_empty() {
+            UNKNOWN_ARTIST
+        } else {
+            n
+        }
+    }
+
+    /// The key of that artist's page. Everything that links to an artist uses this, so the link
+    /// always finds the page (songs with no artist used to link to a page that didn't exist).
+    pub fn artist_key(&self) -> u64 {
+        artist_key(self.artist_name())
+    }
 }
+
+pub const UNKNOWN_ARTIST: &str = "Unknown artist";
 
 /// The first name in a credit like "A, B" or "A feat. B".
 ///
@@ -155,7 +185,7 @@ impl Library {
                     albums.push(Album {
                         key: k,
                         title: t.album.trim().to_string(),
-                        artist: t.primary_artist().to_string(),
+                        artist: t.artist_name().to_string(),
                         year: t.year,
                         tracks: Vec::new(),
                         art: t.art,
@@ -175,9 +205,8 @@ impl Library {
                 }
                 a.added = a.added.max(t.added);
             }
-            let name = t.primary_artist();
-            let name = if name.is_empty() { "Unknown artist" } else { name };
-            let k = artist_key(name);
+            let name = t.artist_name();
+            let k = t.artist_key();
             let i = *artist_by_key.entry(k).or_insert_with(|| {
                 artists.push(Artist {
                     key: k,
@@ -400,9 +429,13 @@ fn make_watcher(dir: &Path, tx: Sender<ScanCmd>) -> Option<notify::RecommendedWa
                 if s.contains(".segno-tmp") || s.contains(".encore-tmp") {
                     return false;
                 }
-                // Folder events have no extension; audio files do.
+                // Folder events have no extension; audio files do. Cover pictures (cover.jpg…)
+                // count too, so adding, changing or removing one updates the songs next to it.
                 match p.extension() {
-                    Some(e) => AUDIO_EXT.contains(&e.to_string_lossy().to_lowercase().as_str()),
+                    Some(e) => {
+                        AUDIO_EXT.contains(&e.to_string_lossy().to_lowercase().as_str())
+                            || p.file_name().is_some_and(|n| is_cover_name(&n.to_string_lossy()))
+                    }
                     None => true,
                 }
             });
@@ -481,14 +514,16 @@ fn scan(
     let before = cache.len();
     cache.retain(|p, _| present.contains(p));
     let mut changed = cache.len() != before;
-    let mut dir_covers: HashMap<PathBuf, Option<(u64, [u8; 3])>> = HashMap::new();
+    let mut covers = Covers::default();
     let mut last_send = Instant::now();
     let mut since_send = 0;
     for (path, meta) in files {
         let mtime = mtime_secs(&meta);
         let size = meta.len();
-        if let Some(t) = cache.get(&path) {
+        if let Some(t) = cache.get_mut(&path) {
             if t.mtime == mtime && t.size == size {
+                // The song didn't change, but the cover picture next to it may have.
+                changed |= update_folder_art(t, &mut covers, colors);
                 continue;
             }
         }
@@ -529,15 +564,11 @@ fn scan(
                 Err(_) => read_track(Path::new(""), mtime, size, added, colors).with_path(&path),
             }
         };
-        if t.art.is_none() {
-            let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
-            let cover = dir_covers
-                .entry(parent.clone())
-                .or_insert_with(|| folder_cover(&parent, colors));
-            if let Some((k, c)) = cover {
-                t.art = Some(*k);
-                t.color = Some(*c);
-            }
+        if t.art.is_some() {
+            // Art of its own: the folder picture never matters for this song.
+            t.cover_sig = NO_COVER;
+        } else {
+            update_folder_art(&mut t, &mut covers, colors);
         }
         cache.insert(path, t);
         changed = true;
@@ -560,27 +591,99 @@ fn scan(
     notify();
 }
 
-fn folder_cover(dir: &Path, colors: &mut HashMap<u64, [u8; 3]>) -> Option<(u64, [u8; 3])> {
+/// Whether a file name is a folder cover picture: cover, folder, front, album or albumart, as
+/// .jpg, .jpeg, .png or .webp, in any letter case.
+fn is_cover_name(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.rsplit_once('.').is_some_and(|(stem, ext)| {
+        matches!(ext, "jpg" | "jpeg" | "png" | "webp") && matches!(stem, "cover" | "folder" | "front" | "album" | "albumart")
+    })
+}
+
+/// A folder's cover picture and a fingerprint of it (name, size and change time), from the
+/// folder listing alone, without reading the picture. None if the folder has none.
+fn folder_cover_file(dir: &Path) -> Option<(PathBuf, u64)> {
     let rd = std::fs::read_dir(dir).ok()?;
-    let mut best: Option<PathBuf> = None;
+    let mut best: Option<(PathBuf, std::fs::Metadata)> = None;
     for e in rd.flatten() {
-        let n = e.file_name().to_string_lossy().to_lowercase();
-        let stem = n.rsplit_once('.').map(|(s, _)| s).unwrap_or(&n);
-        let ext = n.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
-        if matches!(ext, "jpg" | "jpeg" | "png" | "webp")
-            && matches!(stem, "cover" | "folder" | "front" | "album" | "albumart")
-        {
-            best = Some(e.path());
-            if stem == "cover" || stem == "folder" {
-                break;
-            }
+        let name = e.file_name().to_string_lossy().to_lowercase();
+        if !is_cover_name(&name) {
+            continue;
+        }
+        let Ok(meta) = e.metadata() else { continue };
+        best = Some((e.path(), meta));
+        if name.starts_with("cover.") || name.starts_with("folder.") {
+            break;
         }
     }
-    let bytes = std::fs::read(best?).ok()?;
+    let (p, m) = best?;
+    let when = m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+    let sig = hash_bytes(format!("{}\0{}\0{}", p.to_string_lossy(), m.len(), when).as_bytes());
+    Some((p, sig.max(NO_COVER + 1)))
+}
+
+/// Read a cover picture into the art cache.
+fn load_cover(p: &Path, colors: &mut HashMap<u64, [u8; 3]>) -> Option<(u64, [u8; 3])> {
+    let bytes = std::fs::read(p).ok()?;
     let known = colors.get(&hash_bytes(&bytes)).copied();
     let (k, c) = art::store_cover(&bytes, known)?;
     colors.insert(k, c);
     Some((k, c))
+}
+
+/// Folder pictures seen during one scan: each folder is listed once and each picture read once.
+#[derive(Default)]
+struct Covers {
+    files: HashMap<PathBuf, Option<(PathBuf, u64)>>,
+    loaded: HashMap<u64, Option<(u64, [u8; 3])>>,
+}
+
+impl Covers {
+    fn file(&mut self, dir: &Path) -> Option<(PathBuf, u64)> {
+        self.files.entry(dir.to_path_buf()).or_insert_with(|| folder_cover_file(dir)).clone()
+    }
+    fn sig(&mut self, dir: &Path) -> u64 {
+        self.file(dir).map(|(_, s)| s).unwrap_or(NO_COVER)
+    }
+    fn art(&mut self, dir: &Path, colors: &mut HashMap<u64, [u8; 3]>) -> Option<(u64, [u8; 3])> {
+        let (p, sig) = self.file(dir)?;
+        *self.loaded.entry(sig).or_insert_with(|| load_cover(&p, colors))
+    }
+}
+
+/// Give a song the picture in its folder, or take it away, when the picture was added,
+/// changed or removed. Songs with art of their own keep it. Returns whether the song changed.
+fn update_folder_art(t: &mut Track, covers: &mut Covers, colors: &mut HashMap<u64, [u8; 3]>) -> bool {
+    let own_art = t.art.is_some() && !t.folder_art;
+    if own_art && t.cover_sig != 0 {
+        return false;
+    }
+    let dir = t.path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let sig = covers.sig(&dir);
+    if own_art {
+        // Saved before 1.1.10, when it wasn't noted where art came from: if it's the folder's
+        // picture, mark it, so it follows that picture from now on.
+        t.folder_art = sig != NO_COVER && covers.art(&dir, colors).map(|(k, _)| k) == t.art;
+        t.cover_sig = if t.folder_art { sig } else { NO_COVER };
+        return true;
+    }
+    if sig == t.cover_sig {
+        return false;
+    }
+    t.cover_sig = sig;
+    match covers.art(&dir, colors) {
+        Some((k, c)) => {
+            t.art = Some(k);
+            t.color = Some(c);
+            t.folder_art = true;
+        }
+        None => {
+            t.art = None;
+            t.color = None;
+            t.folder_art = false;
+        }
+    }
+    true
 }
 
 /// "Artist - Title" from a file name, when a file has no tags.
@@ -641,6 +744,8 @@ fn read_track(path: &Path, mtime: u64, size: u64, added: u64, colors: &mut HashM
         art: None,
         color: None,
         yt_id: None,
+        folder_art: false,
+        cover_sig: 0,
     };
     let Ok(tf) = lofty::read_from_path(path) else {
         return t;
@@ -690,7 +795,7 @@ fn read_track(path: &Path, mtime: u64, size: u64, added: u64, colors: &mut HashM
 
 #[cfg(test)]
 mod tests {
-    use super::first_artist;
+    use super::*;
 
     #[test]
     fn first_artist_cuts_between_letters() {
@@ -709,5 +814,88 @@ mod tests {
         assert_eq!(first_artist("İlkay, Someone"), "İlkay"); // was "İlkay,"
         assert_eq!(first_artist("Ⱥ ft. B"), "Ⱥ");
         assert_eq!(first_artist("ẞ, X"), "ẞ");
+    }
+
+    fn song(path: &Path, artist: &str) -> Track {
+        let mut t = read_track(Path::new(""), 1, 1, 1, &mut HashMap::new()).with_path(path);
+        t.artist = artist.into();
+        t
+    }
+
+    #[test]
+    fn unknown_artist_links_find_the_page() {
+        let mut lib = Library::default();
+        let nobody = song(Path::new("/m/Untitled.mp3"), "");
+        let someone = song(Path::new("/m/Someone - Song.mp3"), "Someone feat. X");
+        let (n, s) = (nobody.clone(), someone.clone());
+        lib.set_tracks(vec![nobody, someone]);
+        // The key every link uses (player bar, "Go to artist", rows) finds the artist page.
+        let page = lib.artist(n.artist_key()).expect("Unknown artist page");
+        assert_eq!(page.name, UNKNOWN_ARTIST);
+        assert!(page.tracks.contains(&n.id));
+        assert_eq!(lib.artist(s.artist_key()).map(|a| a.name.as_str()), Some("Someone"));
+    }
+
+    #[test]
+    fn folder_covers_follow_the_picture() {
+        let root = std::env::temp_dir().join(format!("segno-cover-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        // Keep the art cache inside the test folder.
+        std::env::set_var("XDG_CACHE_HOME", root.join("cache"));
+        let album = root.join("music").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("01 Song.mp3"), b"not really audio").unwrap();
+        let picture = |path: &Path, size: u32, rgb: [u8; 3]| {
+            image::RgbImage::from_pixel(size, size, image::Rgb(rgb)).save(path).unwrap();
+        };
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        let (mut cache, mut colors) = (HashMap::new(), HashMap::new());
+        let music = root.join("music");
+        let mut rescan = |cache: &mut HashMap<PathBuf, Track>| {
+            scan(&music, cache, &mut colors, &tx, &notify);
+            cache.values().next().cloned().unwrap()
+        };
+
+        let t = rescan(&mut cache);
+        assert_eq!(t.art, None, "no picture yet");
+
+        // Added after the first scan: the song wasn't touched, the picture still shows up.
+        picture(&album.join("cover.png"), 8, [200, 30, 60]);
+        let t = rescan(&mut cache);
+        let first = t.art.expect("picked up the new cover");
+        assert!(t.folder_art);
+        assert_eq!(rescan(&mut cache).art, Some(first), "nothing changes when nothing changed");
+
+        // Replaced with another picture.
+        picture(&album.join("cover.png"), 12, [20, 160, 90]);
+        let second = rescan(&mut cache).art.expect("still has a cover");
+        assert_ne!(second, first, "follows the new picture");
+
+        // A song saved before 1.1.10 (no record of where its art came from) gets sorted out.
+        for t in cache.values_mut() {
+            t.folder_art = false;
+            t.cover_sig = 0;
+        }
+        let t = rescan(&mut cache);
+        assert!(t.folder_art && t.art == Some(second));
+
+        // Removed.
+        std::fs::remove_file(album.join("cover.png")).unwrap();
+        let t = rescan(&mut cache);
+        assert_eq!(t.art, None, "the picture is gone");
+        assert!(!t.folder_art);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cover_names() {
+        for n in ["cover.jpg", "Cover.PNG", "folder.jpeg", "front.webp", "AlbumArt.jpg", "album.png"] {
+            assert!(is_cover_name(n), "{n}");
+        }
+        for n in ["cover.gif", "song.jpg", "cover", "my cover.jpg", "cover.jpg.part"] {
+            assert!(!is_cover_name(n), "{n}");
+        }
     }
 }

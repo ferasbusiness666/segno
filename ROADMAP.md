@@ -103,6 +103,19 @@ Weak spots Codex found:
   - ✅ **Windows device names got through**: "COM4", "LPT9", "CON.txt" couldn't be saved. Now
     the full list is checked (CON, PRN, AUX, NUL, CONIN$, CONOUT$, COM/LPT 0–9 and ¹²³), with or
     without an extension.
+- **Four more bugs** from Codex's second review (it also confirmed the first four are fixed),
+  all fixed in 1.1.10, each with a test:
+  - ✅ **Direct links with the same file name were one song**: yt-dlp's Generic extractor names
+    a song after its file, so ".../album-a/song.mp3" and ".../album-b/song.mp3" shared an id and
+    a cached file. Generic links now use a hash of the whole link as their id.
+  - ✅ **Over 300 downloads lost waiting ones**: the saved list kept only the newest 300 of
+    everything. Now every unfinished download is kept and only finished ones are capped at 300.
+  - ✅ **Folder covers added later didn't show**: the watcher ignored pictures, and a rescan
+    skipped unchanged songs before looking for one. Now cover pictures trigger a rescan, and each
+    song keeps a fingerprint (name, size, time) of its folder picture, so a new, changed or
+    removed picture is noticed without reading every picture on every scan.
+  - ✅ **"Unknown artist" links went nowhere**: the Artists page used "Unknown artist" while the
+    links used an empty name. One shared `Track::artist_key` now.
 
 Codex's order: 1. the four bugs, 2. cache mix-ups and a storage limit, 3. synced lyrics,
 4. online songs start sooner, 5. even volume and smooth changes between songs.

@@ -156,8 +156,9 @@ struct RowInfo {
 }
 
 impl RowInfo {
-    fn primary_artist(&self) -> &str {
-        &self.primary
+    /// The key of the row's artist page (same as `Track::artist_key` for library songs).
+    fn artist_key(&self) -> u64 {
+        library::artist_key(&self.primary)
     }
 }
 
@@ -177,7 +178,7 @@ impl App {
             return Some(RowInfo {
                 title: t.title.clone(),
                 artist: t.artist.clone(),
-                primary: t.primary_artist().to_string(),
+                primary: t.artist_name().to_string(),
                 album: t.album.clone(),
                 duration: t.duration,
                 added: t.added,
@@ -268,7 +269,7 @@ impl App {
                 }
             }
             if menu_item(ui, icons::USER, "Go to artist").clicked() {
-                self.actions.push(Action::Go(Route::Artist(library::artist_key(t.primary_artist()))));
+                self.actions.push(Action::Go(Route::Artist(t.artist_key())));
                 ui.close();
             }
         }
@@ -617,7 +618,7 @@ impl App {
         // On an album or artist page the artist is already in the header; only name it on rows
         // by someone else.
         let show_artist = match mode.one_artist {
-            Some(k) => library::artist_key(t.primary_artist()) != k,
+            Some(k) => t.artist_key() != k,
             None => true,
         };
         if show_artist {
