@@ -2,9 +2,9 @@
 
 <h1 align="center">Segno</h1>
 
-<p align="center">A light, modern music player for Windows. Plays your own music, suggests new songs, and downloads from YouTube, SoundCloud and many other sites.</p>
+<p align="center">A light, modern music player for Windows. Plays your own music, and plays and downloads from YouTube, SoundCloud and many other sites. No account needed.</p>
 
-<p align="center"><a href="https://github.com/ferasbusiness666/segno/releases/latest"><b>Download Segno for Windows</b></a></p>
+<p align="center"><a href="https://github.com/ferasbusiness666/segno/releases/latest"><b>Download Segno for Windows</b></a> · <a href="https://segnomusic.pages.dev">Website</a></p>
 
 ![Segno](docs/screenshot.png)
 
