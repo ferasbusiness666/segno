@@ -52,15 +52,28 @@ impl Track {
         } else {
             self.artist.as_str()
         };
-        let lower = a.to_lowercase();
-        let mut cut = a.len();
-        for sep in [", ", "; ", " feat. ", " feat ", " ft. ", " featuring ", " / "] {
-            if let Some(i) = lower.find(sep) {
-                cut = cut.min(i);
-            }
-        }
-        a[..cut].trim()
+        first_artist(a)
     }
+}
+
+/// The first name in a credit like "A, B" or "A feat. B".
+///
+/// The separators are matched on the name itself, ignoring case for plain ASCII letters only.
+/// (Lowercasing the whole name first and cutting at the place found there was wrong: some
+/// letters change length when lowercased, like the Kelvin sign "K" becoming "k", so the cut
+/// could land inside a letter and crash, or in the wrong place and group songs wrongly.)
+/// Every separator starts with an ASCII byte, which is always the start of a letter in UTF-8,
+/// so the cut is always valid.
+pub fn first_artist(a: &str) -> &str {
+    const SEPS: [&str; 7] = [", ", "; ", " feat. ", " feat ", " ft. ", " featuring ", " / "];
+    let b = a.as_bytes();
+    let cut = (0..b.len())
+        .find(|&i| {
+            SEPS.iter()
+                .any(|s| b.len() - i >= s.len() && b[i..i + s.len()].eq_ignore_ascii_case(s.as_bytes()))
+        })
+        .unwrap_or(b.len());
+    a[..cut].trim()
 }
 
 pub fn album_key(t: &Track) -> Option<u64> {
@@ -673,4 +686,28 @@ fn read_track(path: &Path, mtime: u64, size: u64, added: u64, colors: &mut HashM
         }
     }
     t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_artist;
+
+    #[test]
+    fn first_artist_cuts_between_letters() {
+        assert_eq!(first_artist("A feat. B"), "A");
+        assert_eq!(first_artist("A FEAT. B"), "A");
+        assert_eq!(first_artist("A Ft. B"), "A");
+        assert_eq!(first_artist("A, B & C"), "A");
+        assert_eq!(first_artist("A; B"), "A");
+        assert_eq!(first_artist("AC/DC"), "AC/DC");
+        assert_eq!(first_artist("A / B"), "A");
+        assert_eq!(first_artist("Solo"), "Solo");
+        assert_eq!(first_artist(""), "");
+        assert_eq!(first_artist("Beyoncé feat. JAY-Z"), "Beyoncé");
+        // Letters that change length when lowercased: these crashed or grouped wrongly.
+        assert_eq!(first_artist("\u{212A} feat. Guest"), "\u{212A}"); // Kelvin sign: crashed
+        assert_eq!(first_artist("İlkay, Someone"), "İlkay"); // was "İlkay,"
+        assert_eq!(first_artist("Ⱥ ft. B"), "Ⱥ");
+        assert_eq!(first_artist("ẞ, X"), "ẞ");
+    }
 }

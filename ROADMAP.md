@@ -88,10 +88,21 @@ Weak spots Codex found:
 - **Online songs wait for the whole file**: a song you play from search downloads completely
   before it starts (checked in the code: `run_preview`). The next song in line is fetched early,
   so it's the first play that's slow.
-- **Preview cache**: Codex reported mix-ups between cached songs (not confirmed yet; need its
-  steps). There's also no size limit, only a 3-day cleanup (checked).
+- **Preview cache**: there's no size limit, only a 3-day cleanup (checked).
 - **Album songs back to back**: the fades stop clicks, but there's still a small gap between songs.
-- **Four bugs** Codex reproduced: list them here.
+- **Four bugs** Codex reproduced, all checked and fixed in 1.1.9, each with a test:
+  - ✅ **Crash on some artist names**: lowercasing a name to find "feat." and then cutting the
+    original at that spot broke on letters that change length (the Kelvin sign "K"). With such a
+    song in the music folder, 1.1.8 crashed every time it opened. Other names were grouped wrong
+    ("İlkay, X" became the artist "İlkay,").
+  - ✅ **Preview cache gave the wrong song**: cache names came from the id with symbols turned
+    into "_", so "soundcloud:a.b" and "soundcloud:a_b" shared a file. Names now add a hash of the
+    full id, and each entry is checked against the song's id before it's used.
+  - ✅ **Cleanup deleted another download's files**: cleaning up "soundcloud_12" also deleted
+    "soundcloud_123.m4a". Now only "<name>." files count.
+  - ✅ **Windows device names got through**: "COM4", "LPT9", "CON.txt" couldn't be saved. Now
+    the full list is checked (CON, PRN, AUX, NUL, CONIN$, CONOUT$, COM/LPT 0–9 and ¹²³), with or
+    without an extension.
 
 Codex's order: 1. the four bugs, 2. cache mix-ups and a storage limit, 3. synced lyrics,
 4. online songs start sooner, 5. even volume and smooth changes between songs.
@@ -99,8 +110,8 @@ Codex's order: 1. the four bugs, 2. cache mix-ups and a storage limit, 3. synced
 ## Next: Segno 1.2 (catch up, then pass Cider, Liner and the rest)
 
 In this order:
-- ⬜ **Fix the four bugs** Codex reproduced
-- ⬜ **Preview cache**: no mix-ups between songs, and a size limit you can set in Settings
+- ✅ **Fix the four bugs** Codex reproduced (1.1.9)
+- 🟡 **Preview cache**: no mix-ups between songs (1.1.9); still to do: a size limit you can set in Settings
 - ⬜ **Synced lyrics**: lines scroll and light up with the song (free from LRCLIB); when turned on, they show in full screen under the record and song title
 - ⬜ **Online songs start sooner**: start playing while the song is still coming in, not after
 - ⬜ **Volume levelling**: loud and quiet songs play at the same level

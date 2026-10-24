@@ -78,11 +78,18 @@ impl YtItem {
         }
     }
     /// A file-name-safe version of the id, for temp and preview files.
+    ///
+    /// YouTube ids are used as they are (only letters, digits, "-" and "_"). Other ids
+    /// ("soundcloud:a.b") get their symbols replaced and a hash of the full id added, so two
+    /// different songs never share a name ("soundcloud:a.b" and "soundcloud:a_b" used to). A
+    /// stem never has a "." in it, so "<stem>." only ever matches this song's own files.
     pub fn stem(&self) -> String {
-        self.id
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-            .collect()
+        let safe = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+        if !self.id.is_empty() && self.id.chars().all(safe) {
+            return self.id.clone();
+        }
+        let readable: String = self.id.chars().take(60).map(|c| if safe(c) { c } else { '_' }).collect();
+        format!("{readable}-{:016x}", crate::store::hash_bytes(self.id.as_bytes()))
     }
     /// "YouTube", "SoundCloud", "Spotify"…
     pub fn source(&self) -> &str {
@@ -1419,12 +1426,29 @@ fn run_job(ctx: &WorkerCtx, job: &Job) -> Result<PathBuf, String> {
 
 /// A song's file in the preview cache, if it was fetched before (and is complete).
 pub fn cached(item: &YtItem) -> Option<PathBuf> {
+    preview_entry(item).map(|(path, _)| path)
+}
+
+/// Saved next to each preview: the full id of the song it holds.
+const PREVIEW_ID: &str = "segno_id";
+
+/// Whether a preview's saved details belong to this song. Older previews (before 1.1.9) only
+/// have yt-dlp's own id, which for YouTube is the song's id.
+fn is_entry_for(meta: &Value, item: &YtItem) -> bool {
+    let saved = meta.get(PREVIEW_ID).or_else(|| meta.get("id")).and_then(Value::as_str);
+    saved == Some(item.id.as_str())
+}
+
+/// A song's preview: its audio file and saved details, only if the entry is complete and
+/// really is this song (checked against the id saved with it, never just the file name).
+fn preview_entry(item: &YtItem) -> Option<(PathBuf, Value)> {
     let dir = preview_dir();
     let stem = item.stem();
-    if !dir.join(format!("{stem}.json")).is_file() {
+    let meta: Value = serde_json::from_slice(&std::fs::read(dir.join(format!("{stem}.json"))).ok()?).ok()?;
+    if !is_entry_for(&meta, item) {
         return None;
     }
-    find_audio(&dir, &stem)
+    Some((find_audio(&dir, &stem)?, meta))
 }
 
 /// The downloaded audio file for a stem, whatever its extension.
@@ -1453,10 +1477,8 @@ fn run_preview(ctx: &WorkerCtx, item: &YtItem, slot: &Mutex<Option<(u64, Child)>
     let dir = preview_dir();
     let stem = item.stem();
     let meta_path = dir.join(format!("{stem}.json"));
-    if let Some(audio) = find_audio(&dir, &stem) {
-        if meta_path.is_file() {
-            return Ok(audio);
-        }
+    if let Some((audio, _)) = preview_entry(item) {
+        return Ok(audio);
     }
     let tools = ensure_tools(ctx)?;
     let id = item.id.clone();
@@ -1493,7 +1515,13 @@ fn run_preview(ctx: &WorkerCtx, item: &YtItem, slot: &Mutex<Option<(u64, Child)>
         .filter(|p| p.is_file())
         .or_else(|| find_audio(&dir, &stem))
         .ok_or("The song didn't arrive. Try again.")?;
-    let _ = std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap_or_default());
+    // Save the details with the song's full id, so the entry is only ever used for this song.
+    let mut saved = match meta {
+        Value::Object(m) => m,
+        _ => serde_json::Map::new(),
+    };
+    saved.insert(PREVIEW_ID.into(), Value::String(item.id.clone()));
+    let _ = std::fs::write(&meta_path, serde_json::to_vec(&Value::Object(saved)).unwrap_or_default());
     Ok(path)
 }
 
@@ -1516,12 +1544,7 @@ fn preview_cover(item: &YtItem) -> Option<(u64, [u8; 3])> {
 fn take_from_preview(item: &YtItem, tmp: &Path) -> Option<Value> {
     let dir = preview_dir();
     let stem = item.stem();
-    let audio = find_audio(&dir, &stem)?;
-    let meta_path = dir.join(format!("{stem}.json"));
-    if !meta_path.is_file() {
-        return None;
-    }
-    let mut meta: Value = serde_json::from_slice(&std::fs::read(&meta_path).ok()?).ok()?;
+    let (audio, mut meta) = preview_entry(item)?;
     let dest = tmp.join(audio.file_name()?);
     std::fs::copy(&audio, &dest).ok()?;
     for ext in ["jpg", "webp", "png", "jpeg"] {
@@ -1537,10 +1560,15 @@ fn take_from_preview(item: &YtItem, tmp: &Path) -> Option<Value> {
     Some(meta)
 }
 
+/// Delete one song's leftover files from the temp folder ("<stem>.m4a", "<stem>.webp",
+/// "<stem>.m4a.part"…). Only names that are the stem followed by a "." count, so cleaning up
+/// "soundcloud_12" never touches "soundcloud_123.m4a" from another download.
 fn cleanup_tmp(tmp: &Path, stem: &str) {
+    let mine = format!("{stem}.");
     if let Ok(rd) = std::fs::read_dir(tmp) {
         for e in rd.flatten() {
-            if e.file_name().to_string_lossy().starts_with(stem) {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name == stem || name.starts_with(&mine) {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -1866,12 +1894,30 @@ pub fn sanitize(name: &str) -> String {
     if s.chars().count() > 120 {
         s = s.chars().take(120).collect::<String>().trim_end().to_string();
     }
-    let upper = s.to_uppercase();
-    let reserved = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2"];
-    if s.is_empty() || reserved.contains(&upper.as_str()) {
+    // Windows won't make a file named after a device (CON, COM4, LPT¹…), even with an
+    // extension after it ("CON.txt", "CON .txt"). The name before the first "." decides, and
+    // it gets a "_" added ("CON_.txt").
+    let base = s[..s.find('.').unwrap_or(s.len())].trim_end();
+    if is_windows_device_name(base) {
+        s.insert(base.len(), '_');
+    }
+    if s.is_empty() {
         s = format!("Track {}", now_secs());
     }
     s
+}
+
+/// The names Windows keeps for devices, in any letter case: CON, PRN, AUX, NUL, CONIN$,
+/// CONOUT$, and COM or LPT followed by one digit 0–9 or ¹ ² ³.
+fn is_windows_device_name(base: &str) -> bool {
+    let u = base.to_ascii_uppercase();
+    if matches!(u.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") {
+        return true;
+    }
+    ["COM", "LPT"].iter().any(|p| {
+        let mut rest = u.strip_prefix(p).unwrap_or("").chars();
+        matches!((rest.next(), rest.next()), (Some(c), None) if c.is_ascii_digit() || matches!(c, '¹' | '²' | '³'))
+    })
 }
 
 #[cfg(test)]
@@ -1964,7 +2010,7 @@ mod tests {
         assert!(pl.is_none());
         assert_eq!(items[0].id, "bandcamp:42");
         assert_eq!(items[0].channel, "Band");
-        assert_eq!(items[0].stem(), "bandcamp_42");
+        assert!(items[0].stem().starts_with("bandcamp_42-"), "{}", items[0].stem());
         // YouTube results keep plain ids.
         let v = serde_json::json!({"_type": "playlist", "extractor_key": "YoutubeSearch", "entries": [
             {"ie_key": "Youtube", "id": "dQw4w9WgXcQ", "title": "Song", "channel": "Ch", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]});
@@ -1972,5 +2018,72 @@ mod tests {
         assert!(pl.is_none());
         assert_eq!(items[0].id, "dQw4w9WgXcQ");
         assert!(items[0].url.is_empty());
+    }
+
+    fn item(id: &str) -> YtItem {
+        YtItem { id: id.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn stems_never_clash() {
+        // YouTube ids stay as they are, so older previews are still found.
+        assert_eq!(item("dQw4w9WgXcQ").stem(), "dQw4w9WgXcQ");
+        // These used to share "soundcloud_a_b".
+        let ids = ["soundcloud:a.b", "soundcloud:a_b", "soundcloud:a/b", "soundcloud_a_b", "spotify:x", "spotify_x"];
+        let stems: std::collections::HashSet<String> = ids.iter().map(|i| item(i).stem()).collect();
+        assert_eq!(stems.len(), ids.len(), "{stems:?}");
+        for s in &stems {
+            assert!(!s.contains('.') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'), "{s}");
+        }
+        // Same id, same name every time.
+        assert_eq!(item("soundcloud:a.b").stem(), item("soundcloud:a.b").stem());
+    }
+
+    #[test]
+    fn preview_belongs_to_its_song() {
+        let a = item("soundcloud:a.b");
+        let b = item("soundcloud:a_b");
+        let saved = serde_json::json!({ PREVIEW_ID: "soundcloud:a.b", "id": "a.b" });
+        assert!(is_entry_for(&saved, &a));
+        assert!(!is_entry_for(&saved, &b));
+        // A preview from before 1.1.9: yt-dlp's own id, which is the song's id on YouTube.
+        let yt = item("dQw4w9WgXcQ");
+        assert!(is_entry_for(&serde_json::json!({ "id": "dQw4w9WgXcQ" }), &yt));
+        assert!(!is_entry_for(&serde_json::json!({ "id": "something else" }), &yt));
+        assert!(!is_entry_for(&serde_json::Value::Null, &yt));
+    }
+
+    #[test]
+    fn cleanup_only_takes_its_own_files() {
+        let dir = std::env::temp_dir().join(format!("segno-cleanup-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mine = ["soundcloud_12.m4a", "soundcloud_12.webp", "soundcloud_12.m4a.part", "soundcloud_12.json"];
+        let others = ["soundcloud_123.m4a", "soundcloud_12x.webp", "soundcloud_1.m4a"];
+        for f in mine.iter().chain(others.iter()) {
+            std::fs::write(dir.join(f), b"x").unwrap();
+        }
+        cleanup_tmp(&dir, "soundcloud_12");
+        for f in mine {
+            assert!(!dir.join(f).exists(), "{f} should be gone");
+        }
+        for f in others {
+            assert!(dir.join(f).exists(), "{f} belongs to another download");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn windows_device_names() {
+        for n in ["CON", "con", "PRN", "AUX", "NUL", "COM0", "COM4", "COM9", "LPT1", "LPT9", "COM¹", "lpt³", "CONIN$", "CONOUT$"] {
+            assert_eq!(sanitize(n), format!("{n}_"), "{n}");
+        }
+        assert_eq!(sanitize("CON.txt"), "CON_.txt");
+        assert_eq!(sanitize("nul.tar.gz"), "nul_.tar.gz");
+        assert_eq!(sanitize("COM4 .mp3"), "COM4_ .mp3");
+        // Real names that only look close stay as they are.
+        for n in ["CONCERT", "Console", "COM10", "LPT", "Com Truise - Brokendate", "Nulbarich", "Con Funk Shun", "AUX - Song"] {
+            assert_eq!(sanitize(n), n, "{n}");
+        }
     }
 }

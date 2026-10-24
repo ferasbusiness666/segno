@@ -9,6 +9,14 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.9
+
+### Fixed
+- Segno could close right after opening if an artist's name had certain letters in it (like a special "K" before "feat."). Those names work now and go under the right artist.
+- Two different songs from the same site could share one saved file, so playing one gave you the other.
+- Finishing or stopping one download could delete the half-done file of another download.
+- Songs named like a Windows device ("CON", "COM4", "LPT9"…) couldn't be saved. They get a "_" added now.
+
 ## 1.1.8
 
 ### New
