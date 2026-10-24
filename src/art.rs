@@ -40,6 +40,41 @@ pub fn art_file(key: u64, size: ArtSize) -> PathBuf {
     art_dir().join(format!("{key:016x}_{}.jpg", size.suffix()))
 }
 
+/// A picture from a site made 16:9 and at most `max_w` wide, the shape every view of these
+/// pictures expects: wide views show all of it, square views show its middle (9/16 of the
+/// width). YouTube thumbnails already are 16:9. Square covers (SoundCloud, Bandcamp) used to
+/// be stretched; now they sit in the middle on a blurred, darker copy of themselves, so square
+/// views show the whole cover and wide views show it with soft sides. Wider pictures lose
+/// their sides.
+pub fn to_wide(img: DynamicImage, max_w: u32) -> DynamicImage {
+    let (w, h) = img.dimensions();
+    if w == 0 || h == 0 {
+        return img;
+    }
+    let max_h = (max_w * 9 / 16).max(1);
+    let ratio = w as f32 / h as f32;
+    if (ratio - 16.0 / 9.0).abs() < 0.03 {
+        return if w > max_w { img.resize_exact(max_w, max_h, FilterType::Triangle) } else { img };
+    }
+    if ratio > 16.0 / 9.0 {
+        let nw = ((h as f32 * 16.0 / 9.0).round() as u32).min(w);
+        return to_wide(img.crop_imm((w - nw) / 2, 0, nw, h), max_w);
+    }
+    // Narrower than 16:9: centre it, full height, on a blurred copy.
+    let ch = h.min(max_h);
+    let cw = (ch as f32 * 16.0 / 9.0).round() as u32;
+    let fg = img.resize(cw, ch, FilterType::Triangle);
+    let bg = img
+        .resize_exact(32, 18, FilterType::Triangle)
+        .blur(1.5)
+        .resize_exact(cw, ch, FilterType::Triangle)
+        .brighten(-45);
+    let mut canvas = bg.to_rgba8();
+    let x = (cw - fg.width()) / 2;
+    image::imageops::overlay(&mut canvas, &fg.to_rgba8(), x as i64, ((ch - fg.height()) / 2) as i64);
+    DynamicImage::ImageRgba8(canvas)
+}
+
 /// Trim flat dark bars (letterboxing on video thumbnails), then crop the center square.
 pub fn square_crop(img: &DynamicImage) -> DynamicImage {
     let rgb = img.to_rgb8();
@@ -353,15 +388,46 @@ fn load(key: &ArtKey) -> Option<ColorImage> {
         ArtKey::Url(url) => {
             let bytes = crate::net::get_bytes(url, 4 * 1024 * 1024).ok()?;
             let img = image::load_from_memory(&bytes).ok()?;
-            // 16:9 thumbnails: keep the shape, just make them small.
-            let (w, h) = img.dimensions();
-            let target_w = 240u32.min(w);
-            let img = if w > target_w {
-                img.resize(target_w, (h * target_w / w).max(1), FilterType::Triangle)
-            } else {
-                img
-            };
-            Some(to_color_image(img))
+            Some(to_color_image(to_wide(img, 320)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn site_pictures_become_16_by_9_without_stretching() {
+        // A square cover: a white square with a red dot in the middle.
+        let mut sq = RgbImage::from_pixel(600, 600, image::Rgb([255, 255, 255]));
+        for (x, y, p) in sq.enumerate_pixels_mut() {
+            if (x as i32 - 300).pow(2) + (y as i32 - 300).pow(2) < 100 * 100 {
+                *p = image::Rgb([255, 0, 0]);
+            }
+        }
+        let wide = to_wide(DynamicImage::ImageRgb8(sq), 320);
+        assert_eq!(wide.dimensions(), (320, 180));
+        // The middle 9/16 (what square views show) is the whole cover, not stretched: white at
+        // its edges, red in the middle.
+        let px = |x: u32, y: u32| wide.get_pixel(x, y).0;
+        let (left, right) = (70, 250); // 320 * 7/32 and 320 * 25/32
+        assert!(px(left + 3, 90)[1] > 200 && px(right - 3, 90)[1] > 200, "cover edges are inside the square view");
+        assert!(px(160, 90)[0] > 200 && px(160, 90)[1] < 60, "the dot is in the middle");
+        // The dot is round: as wide as it is tall (about 60 px across at this size).
+        let red = |x: u32, y: u32| { let p = px(x, y); p[0] > 200 && p[1] < 100 };
+        let across = (0..320).filter(|&x| red(x, 90)).count() as i32;
+        let down = (0..180).filter(|&y| red(160, y)).count() as i32;
+        assert!((across - down).abs() <= 2, "{across} vs {down}");
+
+        // A YouTube thumbnail keeps its shape, only smaller.
+        let yt = DynamicImage::ImageRgb8(RgbImage::new(1280, 720));
+        assert_eq!(to_wide(yt, 320).dimensions(), (320, 180));
+        // Wider than 16:9 loses its sides.
+        let pano = DynamicImage::ImageRgb8(RgbImage::new(2000, 500));
+        assert_eq!(to_wide(pano, 320).dimensions(), (320, 180));
+        // Small pictures aren't blown up.
+        let small = DynamicImage::ImageRgb8(RgbImage::new(160, 90));
+        assert_eq!(to_wide(small, 320).dimensions(), (160, 90));
     }
 }

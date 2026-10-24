@@ -9,6 +9,11 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.11
+
+### Fixed
+- Square covers from SoundCloud, Bandcamp and other sites were stretched in playlists, the queue, search and Downloads. They show whole now, without stretching.
+
 ## 1.1.10
 
 ### Fixed

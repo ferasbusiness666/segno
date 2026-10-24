@@ -163,4 +163,4 @@ In this order:
 - 🟡 **Microsoft Store**: package build worked, then put on hold until Partner Center verification works. Restore it from the git history ("Put the Microsoft Store package on hold" commit). The Store may reject apps that download from YouTube.
 - ⬜ **Domain**: segnomusic.app not bought yet
 - ✅ **New logo** (1.1.8): the pink record. Files, colours and rules in `brand/`
-- ⬜ **Screenshots** for the website and README
+- ✅ **Screenshots** for the website: 4 pictures from the real app at 2×, with a made-up demo library (invented artists and songs, covers drawn in code) so nothing in them is someone else's
