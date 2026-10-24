@@ -5,6 +5,9 @@ What's done, what's half done, and what's next.
 ✅ done · 🟡 half done / on hold · ⬜ not started
 
 The pitch: **one app for your own music and online music. Light, fast, free, no account.**
+For the website: **"Your music files and online finds, together. No account needed."**
+
+The goal: be the best music player of its kind, not just as good as the others.
 
 ---
 
@@ -69,13 +72,44 @@ Rule: animations can cost a bit more battery, but RAM must stay light (now about
 
 ---
 
-## Next: Segno 1.2 (close the gap with Cider and Liner)
+## How Segno compares (Codex review, October 2026)
 
+Segno's biggest strength: your own music files, online music and downloads in one simple app,
+no account. Songs saved from a link turn into real files in place.
+
+| App | They do better | Segno does better |
+|---|---|---|
+| **Liner** | Lyrics that follow the song; checks imported songs for wrong matches; lets you control cache size | Plays your own files with no account; you keep normal music files; links from more sites. (Liner's licence doesn't let us copy its code.) |
+| **Moosync** | Better organised code, tests for playback, managing saved library data | Simpler to install; a straight path from "found it online" to "it's in my library" |
+| **Spotube** | Phone app, synced lyrics, volume levelling, more music services to connect | Remembers unfinished downloads after a restart; doesn't rescan files that didn't change |
+| **Strawberry** | Sound controls (EQ), even volume, smooth changes between songs | Free portable Windows download (theirs needs a sponsorship); easy importing from many sites |
+
+Weak spots Codex found:
+- **Online songs wait for the whole file**: a song you play from search downloads completely
+  before it starts (checked in the code: `run_preview`). The next song in line is fetched early,
+  so it's the first play that's slow.
+- **Preview cache**: Codex reported mix-ups between cached songs (not confirmed yet; need its
+  steps). There's also no size limit, only a 3-day cleanup (checked).
+- **Album songs back to back**: the fades stop clicks, but there's still a small gap between songs.
+- **Four bugs** Codex reproduced: list them here.
+
+Codex's order: 1. the four bugs, 2. cache mix-ups and a storage limit, 3. synced lyrics,
+4. online songs start sooner, 5. even volume and smooth changes between songs.
+
+## Next: Segno 1.2 (catch up, then pass Cider, Liner and the rest)
+
+In this order:
+- ⬜ **Fix the four bugs** Codex reproduced
+- ⬜ **Preview cache**: no mix-ups between songs, and a size limit you can set in Settings
 - ⬜ **Synced lyrics**: lines scroll and light up with the song (free from LRCLIB); when turned on, they show in full screen under the record and song title
-- ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders
+- ⬜ **Online songs start sooner**: start playing while the song is still coming in, not after
 - ⬜ **Volume levelling**: loud and quiet songs play at the same level
-- ⬜ **Crossfade and gapless playback**
+- ⬜ **Crossfade and gapless playback**: no gap between album songs
+- ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders
 - ⬜ **Discord status**: "Listening to … on Segno"
+- ⬜ **Wrong match? Pick another**: for imported songs (Spotify links) that found the wrong video
+- ⬜ **Tests for playback**, so bugs like these get caught before a release
+- ⬜ **New icon shows after an update**: tell Windows to reload Segno's icon the first time a new version opens
 
 ## After that: make Segno stand out
 
