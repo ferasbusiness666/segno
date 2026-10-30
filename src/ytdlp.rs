@@ -401,6 +401,11 @@ impl Yt {
         });
     }
 
+    /// A handle the import page uses to read links off the main thread.
+    pub fn resolver(&self) -> Resolver {
+        Resolver(self.worker_ctx())
+    }
+
     /// A handle the audio thread can use to fetch streamed songs on its own.
     pub fn fetcher(&self) -> StreamFetcher {
         StreamFetcher { ctx: self.worker_ctx(), ev_tx: self.ev_tx.clone() }
@@ -968,7 +973,7 @@ pub fn looks_like_link(s: &str) -> bool {
     }
 }
 
-fn full_url(s: &str) -> String {
+pub fn full_url(s: &str) -> String {
     let s = s.trim();
     if s.starts_with("http://") || s.starts_with("https://") || s.starts_with("spotify:") {
         s.to_string()
@@ -980,6 +985,61 @@ fn full_url(s: &str) -> String {
 fn is_youtube_url(u: &str) -> bool {
     let u = u.to_lowercase();
     u.contains("youtube.com/") || u.contains("youtu.be/")
+}
+
+/// Reads links for the import page. Every call blocks, so use it from a thread.
+#[derive(Clone)]
+pub struct Resolver(WorkerCtx);
+
+/// One of a channel's public playlists, before its songs are read.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChannelPlaylist {
+    pub url: String,
+    pub title: String,
+    pub cover: String,
+}
+
+impl Resolver {
+    /// A playlist, album or song link (any site, Spotify too).
+    pub fn link(&self, url: &str) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String> {
+        run_search(&self.0, url)
+    }
+
+    /// The public playlists on a YouTube channel's Playlists tab: (channel name, playlists).
+    pub fn channel_playlists(&self, url: &str) -> Result<(String, Vec<ChannelPlaylist>), String> {
+        let tools = ensure_tools(&self.0)?;
+        let out = base_cmd(&tools)
+            .args(["--flat-playlist", "-J", "--no-warnings"])
+            .arg(url)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("The downloader didn't start ({e})."))?;
+        if !out.status.success() {
+            return Err(friendly_error_for(&String::from_utf8_lossy(&out.stderr), "YouTube"));
+        }
+        let v: Value = serde_json::from_slice(&out.stdout).map_err(|_| "YouTube sent something unexpected.".to_string())?;
+        Ok(channel_playlists_from(&v))
+    }
+}
+
+/// Read yt-dlp's answer for a channel's Playlists tab.
+fn channel_playlists_from(v: &Value) -> (String, Vec<ChannelPlaylist>) {
+    let channel = str_of(v, &["channel", "uploader"])
+        .or_else(|| str_of(v, &["title"]).map(|t| t.trim_end_matches(" - Playlists").to_string()))
+        .unwrap_or_default();
+    let mut lists = Vec::new();
+    for e in v.get("entries").and_then(Value::as_array).into_iter().flatten() {
+        // Playlists only: a video's id is 11 characters, a playlist's is longer.
+        let Some(id) = str_of(e, &["id"]).filter(|id| id.len() > 11) else { continue };
+        let url = str_of(e, &["url"]).filter(|u| u.contains("list=")).unwrap_or_else(|| format!("https://www.youtube.com/playlist?list={id}"));
+        lists.push(ChannelPlaylist {
+            url,
+            title: str_of(e, &["title"]).unwrap_or_else(|| "Playlist".into()),
+            cover: best_thumb(e).unwrap_or_default(),
+        });
+    }
+    (channel, lists)
 }
 
 fn run_search(ctx: &WorkerCtx, query: &str) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String> {
@@ -1949,6 +2009,25 @@ fn is_windows_device_name(base: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn channel_playlists_are_read() {
+        let v = serde_json::json!({
+            "id": "UCabc", "title": "Some Name - Playlists", "channel": "Some Name",
+            "entries": [
+                {"_type": "url", "id": "PLroadtrip0123456", "url": "https://www.youtube.com/playlist?list=PLroadtrip0123456", "title": "Road trip",
+                 "thumbnails": [{"url": "https://i.ytimg.com/vi/x/hqdefault.jpg", "width": 480, "height": 360}]},
+                {"_type": "url", "id": "OLAK5uy_album01234", "title": "An album"},
+                {"_type": "url", "id": "dQw4w9WgXcQ", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "A video"}
+            ]
+        });
+        let (channel, lists) = super::channel_playlists_from(&v);
+        assert_eq!(channel, "Some Name");
+        assert_eq!(lists.len(), 2);
+        assert_eq!(lists[0].title, "Road trip");
+        assert_eq!(lists[0].cover, "https://i.ytimg.com/vi/x/hqdefault.jpg");
+        assert_eq!(lists[1].url, "https://www.youtube.com/playlist?list=OLAK5uy_album01234");
+    }
+
     use super::*;
 
     #[test]

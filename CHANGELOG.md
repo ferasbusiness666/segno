@@ -9,6 +9,15 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.15
+
+### New
+- Import playlists. The "+" next to Playlists now offers New playlist or Import playlists.
+- Paste one link or many at once: playlists from Spotify, YouTube, YouTube Music, SoundCloud, Bandcamp and more.
+- Paste your YouTube channel or Spotify profile to see all its public playlists, then tick the ones you want.
+- Liked Songs and private playlists from Spotify: in the Spotify app, open one, press Ctrl+A then Ctrl+C, and paste.
+- The page shows where to find the link on each site.
+
 ## 1.1.14
 
 ### Better

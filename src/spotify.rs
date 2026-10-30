@@ -41,6 +41,63 @@ pub fn resolve(url: &str) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String>
     parse_embed(&page, &kind, &id, &url)
 }
 
+/// The public playlists on a Spotify profile page (their ids), as far as the page shows them.
+pub fn profile_playlists(url: &str) -> Result<Vec<String>, String> {
+    let page = crate::net::get_page(url).map_err(|_| unreachable())?;
+    let ids = playlist_ids_in(&page);
+    if ids.is_empty() {
+        return Err("Spotify didn't show any public playlists on this profile. Paste the playlists' own links instead (Share → Copy link to playlist).".into());
+    }
+    Ok(ids)
+}
+
+/// Every playlist id a page links to, in order, once.
+fn playlist_ids_in(page: &str) -> Vec<String> {
+    ids_in(page, "playlist")
+}
+
+/// The song ids in text copied out of Spotify (Ctrl+A, Ctrl+C on a playlist copies one link per
+/// song), in order, once each.
+pub fn track_ids_in(text: &str) -> Vec<String> {
+    ids_in(text, "track")
+}
+
+/// Ids of one `kind` ("track", "playlist") in Spotify links and URIs anywhere in `text`:
+/// "open.spotify.com/track/ID", "…/intl-de/track/ID", "spotify:track:ID", and the
+/// `"/track/ID"` links in Spotify's own pages.
+fn ids_in(text: &str, kind: &str) -> Vec<String> {
+    let mut found: Vec<(usize, String)> = Vec::new();
+    let id_at = |rest: &str| -> Option<String> {
+        let id: String = rest.chars().take_while(char::is_ascii_alphanumeric).collect();
+        (id.len() == 22).then_some(id)
+    };
+    for (i, m) in text.match_indices("spotify.com/") {
+        let mut rest = &text[i + m.len()..];
+        if rest.starts_with("intl-") || rest.starts_with("embed/") {
+            rest = rest.split_once('/').map_or("", |(_, r)| r);
+        }
+        if let Some(id) = rest.strip_prefix(kind).and_then(|r| r.strip_prefix('/')).and_then(id_at) {
+            found.push((i, id));
+        }
+    }
+    // URIs, and links inside Spotify's own pages ("/playlist/ID" in quotes).
+    for prefix in [format!("spotify:{kind}:"), format!("\"/{kind}/")] {
+        for (i, _) in text.match_indices(&prefix) {
+            if let Some(id) = id_at(&text[i + prefix.len()..]) {
+                found.push((i, id));
+            }
+        }
+    }
+    found.sort_by_key(|f| f.0);
+    let mut ids: Vec<String> = Vec::new();
+    for (_, id) in found {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
 fn unreachable() -> String {
     "Couldn't reach Spotify. Check your internet connection.".into()
 }
@@ -190,6 +247,15 @@ fn parse_embed(page: &str, kind: &str, id: &str, link: &str) -> Result<(Vec<YtIt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_ids_in_copied_text_and_pages() {
+        let copied = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC\r\nhttps://open.spotify.com/intl-de/track/7qiZfU4dY1lWllzX7mPBI3?si=abc\nspotify:track:4uLU6hMCjMI75M1A2tKUQC\nspotify:track:0VjIjW4GlUZAMYd2vXMi3b";
+        assert_eq!(track_ids_in(copied), vec!["4uLU6hMCjMI75M1A2tKUQC", "7qiZfU4dY1lWllzX7mPBI3", "0VjIjW4GlUZAMYd2vXMi3b"]);
+        let page = r#"<a href="/playlist/37i9dQZF1DXcBWIGoYBM5M">Hits</a> "uri":"spotify:playlist:37i9dQZF1DX0XUsuxWHRQd" /playlist/short /playlist/37i9dQZF1DXcBWIGoYBM5M"#;
+        assert_eq!(playlist_ids_in(page), vec!["37i9dQZF1DXcBWIGoYBM5M", "37i9dQZF1DX0XUsuxWHRQd"]);
+        assert!(track_ids_in("no links here").is_empty());
+    }
 
     fn page(entity: Value) -> String {
         let data = serde_json::json!({"props": {"pageProps": {"state": {"data": {"entity": entity}}}}});

@@ -363,6 +363,7 @@ impl App {
             Route::ForYou => self.for_you_page(&mut child),
             Route::Settings => self.settings_page(&mut child),
             Route::NowPlaying => self.now_playing_page(&mut child),
+            Route::Import => self.import_page(&mut child),
         };
         self.top_bar(ui, rect, scroll);
     }

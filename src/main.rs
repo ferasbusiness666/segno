@@ -3,6 +3,7 @@
 mod app;
 mod art;
 mod icons;
+mod import;
 mod library;
 mod lyrics;
 mod net;

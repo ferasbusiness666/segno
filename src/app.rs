@@ -36,6 +36,8 @@ pub enum Route {
     ForYou,
     Settings,
     NowPlaying,
+    /// Bring playlists in from other sites.
+    Import,
 }
 
 pub enum Action {
@@ -239,6 +241,7 @@ pub struct App {
     lyrics_tx: std::sync::mpsc::Sender<crate::lyrics::Query>,
     lyrics_rx: Receiver<(u64, crate::lyrics::State)>,
     pub lyr: crate::nowplaying::LyricsView,
+    pub import: crate::import::Import,
     pub imm_queue: bool,
     pub vinyl_angle: f32,
     pub backdrop_angle: f32,
@@ -405,6 +408,7 @@ impl App {
             lyrics_tx,
             lyrics_rx,
             lyr: Default::default(),
+            import: Default::default(),
             imm_queue: false,
             vinyl_angle: 0.0,
             backdrop_angle: 0.0,
@@ -730,6 +734,71 @@ impl App {
         });
     }
 
+    /// Save a playlist from a site: songs already in the library go in as files, the rest play
+    /// from the site until you download them. Saving the same link again updates that playlist
+    /// instead of making a copy. Returns the playlist and how many songs play online.
+    pub fn save_playlist(&mut self, info: &ytdlp::PlaylistInfo, items: &[YtItem]) -> (u64, usize) {
+        let keys: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
+        let existing = self
+            .playlists
+            .iter()
+            .find(|p| p.source.as_ref().map(|s| s.url == info.url).unwrap_or(false))
+            .map(|p| p.id);
+        let pid = existing.unwrap_or_else(|| store::hash_bytes(format!("{}{}", now_secs(), info.url).as_bytes()));
+        let mut entries: Vec<PathBuf> = Vec::new();
+        let mut streams = std::collections::HashMap::new();
+        for it in items {
+            match self.lib.by_key.get(&it.id).and_then(|t| self.lib.get(*t)) {
+                Some(t) => entries.push(t.path.clone()),
+                None => {
+                    entries.push(store::stream_entry(&it.id));
+                    streams.insert(it.id.clone(), it.clone());
+                }
+            }
+        }
+        let n_stream = streams.len();
+        match self.playlists.iter_mut().find(|p| p.id == pid) {
+            Some(p) => {
+                if let Some(src) = p.source.as_mut() {
+                    src.keys = keys;
+                }
+                // Add what's new on the site; keep your order and your removals as they are.
+                for (k, it) in streams {
+                    p.streams.entry(k).or_insert(it);
+                }
+                for e in entries {
+                    if !p.tracks.contains(&e) {
+                        p.tracks.push(e);
+                    }
+                }
+            }
+            None => self.playlists.push(Playlist {
+                id: pid,
+                name: info.title.clone(),
+                tracks: entries,
+                created: now_secs(),
+                source: Some(store::PlaylistSource { url: info.url.clone(), site: info.site.clone(), keys }),
+                streams,
+                ..Default::default()
+            }),
+        }
+        store::save_playlists(&self.playlists);
+        self.register_playlist_streams();
+        // The playlist's own picture, fetched in the background.
+        let has_cover = self.playlist(pid).map(|p| p.cover.is_some()).unwrap_or(false);
+        if !info.cover.is_empty() && !has_cover {
+            let (tx, url) = (self.cover_tx.clone(), info.cover.clone());
+            let ctx = self.ctx.clone();
+            std::thread::spawn(move || {
+                if let Some((key, color)) = crate::net::get_bytes(&url, 16 << 20).ok().and_then(|b| crate::art::store_cover(&b, None)) {
+                    let _ = tx.send((pid, key, color));
+                    ctx.request_repaint();
+                }
+            });
+        }
+        (pid, n_stream)
+    }
+
     pub fn now_info(&self) -> Option<NowInfo> {
         self.current_id().and_then(|id| self.info_for(id))
     }
@@ -1037,6 +1106,7 @@ impl App {
         self.sync_autoplay();
         self.sync_updates();
         self.sync_lyrics();
+        self.sync_import();
         while let Ok((id, st)) = self.lyrics_rx.try_recv() {
             if self.lyrics_for == Some(id) {
                 self.lyrics = st;
@@ -1522,67 +1592,7 @@ impl App {
             Action::YtRetry(uid) => self.yt.retry(uid),
             Action::RetryPlaylist(pid) => self.yt.retry_playlist(pid),
             Action::SavePlaylist { info, items } => {
-                // Saved, not downloaded: songs already in the library go in as files, the rest
-                // play from the site until you download them.
-                let keys: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
-                // Saving the same link again updates that playlist instead of making a copy.
-                let existing = self
-                    .playlists
-                    .iter()
-                    .find(|p| p.source.as_ref().map(|s| s.url == info.url).unwrap_or(false))
-                    .map(|p| p.id);
-                let pid = existing.unwrap_or_else(|| store::hash_bytes(format!("{}{}", now_secs(), info.url).as_bytes()));
-                let mut entries: Vec<PathBuf> = Vec::new();
-                let mut streams = std::collections::HashMap::new();
-                for it in &items {
-                    match self.lib.by_key.get(&it.id).and_then(|t| self.lib.get(*t)) {
-                        Some(t) => entries.push(t.path.clone()),
-                        None => {
-                            entries.push(store::stream_entry(&it.id));
-                            streams.insert(it.id.clone(), it.clone());
-                        }
-                    }
-                }
-                let n_stream = streams.len();
-                match self.playlists.iter_mut().find(|p| p.id == pid) {
-                    Some(p) => {
-                        if let Some(src) = p.source.as_mut() {
-                            src.keys = keys;
-                        }
-                        // Add what's new on the site; keep your order and your removals as they are.
-                        for (k, it) in streams {
-                            p.streams.entry(k).or_insert(it);
-                        }
-                        for e in entries {
-                            if !p.tracks.contains(&e) {
-                                p.tracks.push(e);
-                            }
-                        }
-                    }
-                    None => self.playlists.push(Playlist {
-                        id: pid,
-                        name: info.title.clone(),
-                        tracks: entries,
-                        created: now_secs(),
-                        source: Some(store::PlaylistSource { url: info.url.clone(), site: info.site.clone(), keys }),
-                        streams,
-                        ..Default::default()
-                    }),
-                }
-                store::save_playlists(&self.playlists);
-                self.register_playlist_streams();
-                // The playlist's own picture, fetched in the background.
-                let has_cover = self.playlist(pid).map(|p| p.cover.is_some()).unwrap_or(false);
-                if !info.cover.is_empty() && !has_cover {
-                    let (tx, url) = (self.cover_tx.clone(), info.cover.clone());
-                    let ctx = self.ctx.clone();
-                    std::thread::spawn(move || {
-                        if let Some((key, color)) = crate::net::get_bytes(&url, 16 << 20).ok().and_then(|b| crate::art::store_cover(&b, None)) {
-                            let _ = tx.send((pid, key, color));
-                            ctx.request_repaint();
-                        }
-                    });
-                }
+                let (pid, n_stream) = self.save_playlist(&info, &items);
                 self.go(Route::Playlist(pid));
                 self.toast(if n_stream == 0 {
                     format!("Saved “{}”", info.title)
@@ -2134,9 +2144,8 @@ impl App {
         w::section_label(ui.painter(), pos2(lr.left() + S3, lr.center().y), "Playlists");
         let add_rect = Rect::from_center_size(pos2(lr.right() - 14.0, lr.center().y), Vec2::splat(28.0));
         let add = ui.interact(add_rect, Id::new("new-playlist"), Sense::click());
-        if w::icon_button_at(ui, add_rect, add, icons::PLUS, false, "New playlist").clicked() {
-            self.actions.push(Action::NewPlaylist { with: vec![] });
-        }
+        let add = w::icon_button_at(ui, add_rect, add, icons::PLUS, false, "New or import playlists");
+        egui::Popup::menu(&add).show(|ui| self.new_playlist_menu(ui));
         ui.add_space(S1);
 
         // Settings pinned to the bottom; playlists scroll above it.
@@ -2222,9 +2231,8 @@ impl App {
         let (sr, _) = ui.allocate_exact_size(vec2(wdt, 1.0), Sense::hover());
         ui.painter().hline(sr.x_range().shrink(S3), sr.center().y, Stroke::new(1.0, HAIRLINE));
         ui.add_space(S2);
-        if self.rail_button(ui, icons::PLUS, "New playlist", false, None).clicked() {
-            self.actions.push(Action::NewPlaylist { with: vec![] });
-        }
+        let add = self.rail_button(ui, icons::PLUS, "New or import playlists", false, None);
+        egui::Popup::menu(&add).show(|ui| self.new_playlist_menu(ui));
         ui.add_space(S1);
 
         let list_h = (ui.available_height() - 44.0 - S2).max(40.0);
