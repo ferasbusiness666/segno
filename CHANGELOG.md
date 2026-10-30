@@ -9,6 +9,13 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.12
+
+### New
+- Synced lyrics. Press the lyrics button on Now Playing or full screen: the line being sung lights up and the rest scroll by. Click a line to jump there, or scroll to look ahead. Arabic and Hebrew lyrics read right to left.
+- Lyrics come free from lrclib.net, found by song and artist name, and are saved on your computer. Have your own? Put a .lrc file with the same name next to the song.
+- Turn it off in Settings > Playback and Segno sends nothing.
+
 ## 1.1.11
 
 ### Fixed

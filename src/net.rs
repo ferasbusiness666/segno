@@ -9,7 +9,7 @@ fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
         let b = ureq::Agent::config_builder()
-            .user_agent(concat!("Segno/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Segno/", env!("CARGO_PKG_VERSION"), " (https://segnomusic.pages.dev)"))
             .timeout_connect(Some(Duration::from_secs(15)))
             .timeout_recv_response(Some(Duration::from_secs(30)))
             .max_redirects(10);
@@ -85,4 +85,20 @@ pub fn get_page(url: &str) -> Result<String, String> {
         .limit(16 << 20)
         .read_to_string()
         .map_err(|e| e.to_string())
+}
+
+/// A small text answer from an API. A plain "not found" is `Ok(None)`; anything else that
+/// goes wrong (no internet, a server error) is an `Err`.
+pub fn get_text_opt(url: &str) -> Result<Option<String>, String> {
+    match agent().get(url).call() {
+        Ok(mut resp) => resp
+            .body_mut()
+            .with_config()
+            .limit(4 << 20)
+            .read_to_string()
+            .map(Some)
+            .map_err(|e| e.to_string()),
+        Err(ureq::Error::StatusCode(404)) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
 }

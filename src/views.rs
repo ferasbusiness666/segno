@@ -2127,6 +2127,7 @@ impl App {
         let mut auto = self.settings.autoplay;
         let mut spin = self.settings.spin_record;
         let mut tray = self.settings.close_to_tray;
+        let mut lyr = self.settings.show_lyrics;
         self.settings_card(ui, "", "", |app, ui| {
             if toggle_row(ui, "Keep playing when the queue ends", "Carries on with your library, so the music doesn't stop.", &mut auto) {
                 app.actions.push(Action::SetAutoplay(auto));
@@ -2138,6 +2139,11 @@ impl App {
             settings_sep(ui);
             if toggle_row(ui, "Spin the record", "On Now Playing and full screen. Turn off to save a little battery.", &mut spin) {
                 app.settings.spin_record = spin;
+                app.settings.save();
+            }
+            settings_sep(ui);
+            if toggle_row(ui, "Synced lyrics", "Finds lyrics on lrclib.net when you open them, using the song and artist name. Off sends nothing.", &mut lyr) {
+                app.settings.show_lyrics = lyr;
                 app.settings.save();
             }
         });

@@ -4,6 +4,7 @@ mod app;
 mod art;
 mod icons;
 mod library;
+mod lyrics;
 mod net;
 mod platform;
 mod player;

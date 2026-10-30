@@ -230,6 +230,13 @@ pub struct App {
     fs_saved: Option<platform::SavedWindow>,
     /// Up next beside the record, on the Now Playing page and in full screen.
     pub np_queue: bool,
+    /// Lyrics of the song `lyrics_for`, looked up by the lyrics worker.
+    pub lyrics: crate::lyrics::State,
+    pub lyrics_for: Option<u64>,
+    lyrics_asked: f64,
+    lyrics_tx: std::sync::mpsc::Sender<crate::lyrics::Query>,
+    lyrics_rx: Receiver<(u64, crate::lyrics::State)>,
+    pub lyr: crate::nowplaying::LyricsView,
     pub imm_queue: bool,
     pub vinyl_angle: f32,
     pub backdrop_angle: f32,
@@ -334,6 +341,14 @@ impl App {
         let (media_tx, media_rx) = channel();
 
         let (cover_tx, cover_rx) = channel();
+        let (lyrics_reply, lyrics_rx) = channel();
+        let lyrics_tx = {
+            let ctx2 = ctx.clone();
+            crate::lyrics::worker(move |id, st| {
+                let _ = lyrics_reply.send((id, st));
+                ctx2.request_repaint();
+            })
+        };
         let mut app = App {
             player,
             ps: Default::default(),
@@ -382,6 +397,12 @@ impl App {
             imm_since: -10.0,
             fs_saved: None,
             np_queue: true,
+            lyrics: crate::lyrics::State::Missing,
+            lyrics_for: None,
+            lyrics_asked: 0.0,
+            lyrics_tx,
+            lyrics_rx,
+            lyr: Default::default(),
             imm_queue: false,
             vinyl_angle: 0.0,
             backdrop_angle: 0.0,
@@ -644,6 +665,54 @@ impl App {
     /// A finished download whose file has since been deleted or moved away.
     pub fn download_gone(&self, path: &std::path::Path) -> bool {
         self.lib.by_path(path).is_none() && !path.exists()
+    }
+
+    /// The side panel on Now Playing / full screen is showing lyrics.
+    pub fn lyrics_mode(&self) -> bool {
+        self.settings.show_lyrics && self.settings.lyrics_panel
+    }
+
+    /// Open, close or switch the side panel (`lyrics`: the lyrics button, else Up next).
+    pub fn toggle_side(&mut self, full_screen: bool, lyrics: bool) {
+        let mode = self.lyrics_mode();
+        let open = if full_screen { &mut self.imm_queue } else { &mut self.np_queue };
+        if *open && mode == lyrics {
+            *open = false;
+        } else {
+            *open = true;
+            if self.settings.lyrics_panel != lyrics {
+                self.settings.lyrics_panel = lyrics;
+                self.settings.save();
+            }
+        }
+    }
+
+    /// Look the lyrics up while the lyrics panel shows the song playing. Nothing is sent
+    /// before it's opened.
+    fn sync_lyrics(&mut self) {
+        let open = if self.immersive { self.imm_queue } else { self.route == Route::NowPlaying && self.np_queue };
+        let Some(id) = self.current_id().filter(|_| open && self.lyrics_mode()) else { return };
+        let now = self.ctx.input(|i| i.time);
+        // Couldn't reach the site last time: ask again every half a minute while it's open.
+        let retry = matches!(self.lyrics, crate::lyrics::State::Failed) && now - self.lyrics_asked > 30.0;
+        if self.lyrics_for == Some(id) && !retry {
+            return;
+        }
+        let Some(info) = self.info_for(id) else { return };
+        if self.lyrics_for != Some(id) {
+            self.lyr = Default::default();
+        }
+        self.lyrics_for = Some(id);
+        self.lyrics = crate::lyrics::State::Loading;
+        self.lyrics_asked = now;
+        let _ = self.lyrics_tx.send(crate::lyrics::Query {
+            id,
+            song: self.lib.get(id).map(|t| t.path.clone()),
+            title: info.title,
+            artist: info.artist,
+            album: info.album,
+            duration: info.duration,
+        });
     }
 
     pub fn now_info(&self) -> Option<NowInfo> {
@@ -952,6 +1021,12 @@ impl App {
         }
         self.sync_autoplay();
         self.sync_updates();
+        self.sync_lyrics();
+        while let Ok((id, st)) = self.lyrics_rx.try_recv() {
+            if self.lyrics_for == Some(id) {
+                self.lyrics = st;
+            }
+        }
         while let Ok((pid, key, color)) = self.cover_rx.try_recv() {
             if let Some(p) = self.playlists.iter_mut().find(|p| p.id == pid) {
                 if p.cover.is_none() {
@@ -1554,7 +1629,7 @@ impl App {
             Action::ToggleQueue => {
                 // On Now Playing the queue sits beside the record instead of in the side panel.
                 if self.route == Route::NowPlaying {
-                    self.np_queue = !self.np_queue;
+                    self.toggle_side(false, false);
                 } else {
                     self.queue_open = !self.queue_open;
                 }
@@ -2593,7 +2668,7 @@ impl App {
                 self.actions.push(Action::AddToQueue(d.ids.clone()));
             }
         }
-        let q_on = if self.route == Route::NowPlaying { self.np_queue } else { self.queue_open };
+        let q_on = if self.route == Route::NowPlaying { self.np_queue && !self.lyrics_mode() } else { self.queue_open };
         if w::icon_button_at(ui, qr, qresp, icons::LIST_MUSIC, q_on, "Queue · drop songs here to add them").clicked() {
             self.actions.push(Action::ToggleQueue);
         }

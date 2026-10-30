@@ -4,10 +4,12 @@
 use crate::app::{Action, App, NowInfo, Route};
 use crate::art::{ArtKey, ArtSize};
 use crate::icons;
+use crate::lyrics;
 use crate::store::Repeat;
 use crate::theme::{self, *};
 use crate::widgets as w;
 use egui::{pos2, vec2, Align2, Color32, CursorIcon, FontId, Id, Pos2, Rect, Response, Sense, Ui, Vec2};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Seconds without touching the mouse before the full-screen controls fade out.
@@ -207,13 +209,22 @@ impl App {
             self.actions.push(Action::ToggleImmersive);
         }
         let qr = fr.translate(vec2(-40.0, 0.0));
-        let qtip = if self.np_queue { "Hide Up next" } else { "Show Up next" };
-        if round_button(ui, qr, Id::new("np-queue"), icons::LIST_MUSIC, self.np_queue, qtip).clicked() {
-            self.np_queue = !self.np_queue;
+        let lm = self.lyrics_mode();
+        let qtip = if self.np_queue && !lm { "Hide Up next" } else { "Show Up next" };
+        if round_button(ui, qr, Id::new("np-queue"), icons::LIST_MUSIC, self.np_queue && !lm, qtip).clicked() {
+            self.toggle_side(false, false);
+        }
+        if self.settings.show_lyrics {
+            let ltip = if self.np_queue && lm { "Hide lyrics" } else { "Show lyrics" };
+            if round_button(ui, qr.translate(vec2(-40.0, 0.0)), Id::new("np-lyrics"), icons::LYRICS, self.np_queue && lm, ltip).clicked() {
+                self.toggle_side(false, true);
+            }
         }
 
         let body = Rect::from_min_max(pos2(rect.left() + PAD_X, rect.top() + TOPBAR_H), pos2(rect.right() - PAD_X, rect.bottom() - S5));
-        let q_w = (body.width() * 0.4).clamp(280.0, 400.0);
+        // Lyrics take more room than Up next; the change of width glides.
+        let side_goal = if lm { (body.width() * 0.5).clamp(300.0, 680.0) } else { (body.width() * 0.4).clamp(280.0, 400.0) };
+        let q_w = ui.ctx().animate_value_with_time(Id::new("np-side-w"), side_goal, T_SLOW);
         let fits = body.width() - q_w - S6 >= 300.0;
         // Up next slides in from the right; the record moves over to make room.
         let qt = egui::emath::easing::cubic_out(ui.ctx().animate_bool_with_time(Id::new("np-q-open"), self.np_queue && fits, T_SLOW));
@@ -228,16 +239,154 @@ impl App {
 
         if qt > 0.01 {
             let qr = Rect::from_min_max(pos2(body.right() - q_w, body.top() + S1), body.max).translate(vec2((1.0 - qt) * (q_w + PAD_X + S4), 0.0));
-            p.rect_filled(qr, R_LG, with_alpha(Color32::BLACK, 0.28 * qt));
-            p.rect_stroke(qr, R_LG, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.05 * qt)), egui::StrokeKind::Inside);
-            let inner = qr.shrink2(vec2(S3, S4));
-            w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), with_alpha(TEXT, qt), inner.width());
-            let lr = Rect::from_min_max(pos2(inner.left(), inner.top() + 34.0), inner.max);
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).layout(egui::Layout::top_down(egui::Align::Min)));
-            child.multiply_opacity(qt);
-            self.queue_list(&mut child, lr, false, "np");
+            if lm {
+                // Lyrics float on the background, no panel behind them.
+                let lr = qr.shrink2(vec2(S2, 0.0));
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).layout(egui::Layout::top_down(egui::Align::Min)));
+                child.multiply_opacity(qt);
+                self.lyrics_panel(&mut child, lr, (side_goal / 20.0).clamp(20.0, 32.0).round(), "np");
+            } else {
+                p.rect_filled(qr, R_LG, with_alpha(Color32::BLACK, 0.28 * qt));
+                p.rect_stroke(qr, R_LG, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.05 * qt)), egui::StrokeKind::Inside);
+                let inner = qr.shrink2(vec2(S3, S4));
+                w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), with_alpha(TEXT, qt), inner.width());
+                let lr = Rect::from_min_max(pos2(inner.left(), inner.top() + 34.0), inner.max);
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).layout(egui::Layout::top_down(egui::Align::Min)));
+                child.multiply_opacity(qt);
+                self.queue_list(&mut child, lr, false, "np");
+            }
         }
         (0.0, String::new())
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Lyrics
+
+    /// The lyrics in `area`, straight on the background: the line being sung is bright and
+    /// stays in place while the rest slide past and fade out at the edges. Click a line to jump
+    /// there; the wheel looks ahead, and a few seconds later the song takes over again.
+    pub(crate) fn lyrics_panel(&mut self, ui: &mut Ui, area: Rect, size: f32, salt: &str) {
+        /// Light a line up a moment early, the way people read ahead when they sing along.
+        const LEAD: f32 = 0.2;
+        const INSET: f32 = 4.0;
+        let p = ui.painter().clone();
+        let ctx = ui.ctx().clone();
+        let note = |main: &str, sub: &str| {
+            w::text(&p, area.center() - vec2(0.0, 10.0), Align2::CENTER_CENTER, main, h2(), TEXT_2, area.width());
+            w::text(&p, area.center() + vec2(0.0, 16.0), Align2::CENTER_CENTER, sub, small(), TEXT_3, area.width());
+        };
+        // Until the song playing has been looked up, whatever is in `lyrics` is another song's.
+        let current = self.lyrics_for.is_some() && self.lyrics_for == self.current_id();
+        let l = match (&self.lyrics, current) {
+            (lyrics::State::Found(l), true) => Arc::clone(l),
+            (lyrics::State::Missing, true) => return note("No synced lyrics for this one", "Or put a .lrc file next to the song."),
+            (lyrics::State::Failed, true) => {
+                // The app asks again after half a minute; wake up for it.
+                ctx.request_repaint_after(Duration::from_secs(31));
+                return note("Couldn't load lyrics", "Check your internet. Segno tries again soon.");
+            }
+            _ => return note("Looking for lyrics…", ""),
+        };
+        let id = self.lyrics_for.unwrap_or(0);
+        let now = ctx.input(|i| i.time);
+        let pos = self.seek_preview.unwrap_or(self.pos);
+        let idx = l.line_at(pos + LEAD);
+
+        // Break the lines into rows once per song and size, not every frame.
+        let font = FontId::new(size, theme::bold());
+        let wrap = ((area.width() - 2.0 * INSET) / 8.0).floor().max(5.0) * 8.0;
+        let key = (id, l.lines.len(), size.to_bits(), wrap.to_bits(), ctx.pixels_per_point().to_bits());
+        let lay = match self.lyr.layout.take() {
+            Some(lay) if lay.key == key => lay,
+            _ => {
+                self.lyr.shown = None;
+                LyricsLayout::new(ui, &l, &font, wrap, key)
+            }
+        };
+
+        // The line being sung cross-fades with the one before it.
+        if idx != self.lyr.line {
+            self.lyr.prev = self.lyr.line;
+            self.lyr.line = idx;
+            self.lyr.changed = now;
+        }
+        let fade = ((now - self.lyr.changed) / 0.3).clamp(0.0, 1.0) as f32;
+        if fade < 1.0 {
+            ctx.request_repaint();
+        }
+
+        // Keep the line being sung in place; the wheel looks ahead or back for a moment.
+        let ai = idx.unwrap_or(0);
+        let center = lay.lines[ai].top + lay.lines[ai].rows.len() as f32 * lay.row_h / 2.0;
+        if ui.rect_contains_pointer(area) {
+            let d = ctx.input(|i| i.smooth_scroll_delta.y);
+            if d != 0.0 {
+                self.lyr.off = (self.lyr.off - d).clamp(-center, lay.height - center);
+                self.lyr.touched = now;
+            }
+        }
+        if self.lyr.off != 0.0 {
+            let quiet = now - self.lyr.touched;
+            if quiet > 3.0 {
+                self.lyr.off = 0.0;
+            } else {
+                ctx.request_repaint_after(Duration::from_secs_f64(3.05 - quiet));
+            }
+        }
+        let goal = center + self.lyr.off;
+        let shown = match self.lyr.shown {
+            Some(s) if (goal - s).abs() > 0.5 => {
+                let dt = ctx.input(|i| i.stable_dt).clamp(0.001, 0.05);
+                ctx.request_repaint();
+                s + (goal - s) * (1.0 - (-dt * 9.0).exp())
+            }
+            _ => goal,
+        };
+        self.lyr.shown = Some(shown);
+
+        let anchor = area.top() + area.height() * 0.42;
+        let edge_fade = (area.height() * 0.18).clamp(40.0, 160.0);
+        let clip = p.with_clip_rect(area.intersect(p.clip_rect()));
+        for (i, line) in lay.lines.iter().enumerate() {
+            let h = line.rows.len() as f32 * lay.row_h;
+            let top = anchor + line.top - shown;
+            if top + h <= area.top() {
+                continue;
+            }
+            if top >= area.bottom() {
+                break;
+            }
+            let on = if Some(i) == self.lyr.line {
+                fade
+            } else if Some(i) == self.lyr.prev {
+                1.0 - fade
+            } else {
+                0.0
+            };
+            let dim = (0.5 - 0.05 * (i as f32 - ai as f32).abs()).max(0.3);
+            let mid = top + h / 2.0;
+            let edge = ((mid - area.top()) / edge_fade).min((area.bottom() - mid) / edge_fade).clamp(0.0, 1.0);
+            let edge = edge * edge * (3.0 - 2.0 * edge);
+            let hit = Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), h)).intersect(area);
+            let resp = ui.interact(hit, Id::new(("lyr-line", salt, i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+            if resp.clicked() {
+                self.actions.push(Action::Seek(l.lines[i].0));
+                self.lyr.off = 0.0;
+            }
+            let a = (egui::lerp(dim..=1.0, on) + if resp.hovered() { 0.2 } else { 0.0 }).min(1.0) * edge;
+            for (k, row) in line.rows.iter().enumerate() {
+                // line_job puts right-to-left words in the right order.
+                let g = p.layout_job(theme::line_job(row, font.clone(), Color32::PLACEHOLDER, wrap));
+                let x = if line.rtl { area.right() - INSET - g.size().x } else { area.left() + INSET };
+                clip.galley(pos2(x, top + k as f32 * lay.row_h), g, with_alpha(TEXT, a));
+            }
+        }
+        // Wake up for the next line (the record may not be turning to do it for us).
+        if self.ps.playing {
+            let wait = l.next_start(idx).map_or(1.0, |n| (n - pos - LEAD).max(0.0));
+            ctx.request_repaint_after(Duration::from_secs_f32(wait.clamp(0.016, 1.0)));
+        }
+        self.lyr.layout = Some(lay);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -394,7 +543,9 @@ impl App {
 
         let pad = (full.height() * 0.06).clamp(S6, 64.0);
         let area = full.shrink(pad);
-        let q_w = (full.width() * 0.3).clamp(320.0, 440.0);
+        let lm = self.lyrics_mode();
+        let side_goal = if lm { (area.width() * 0.5).clamp(360.0, 820.0) } else { (full.width() * 0.3).clamp(320.0, 440.0) };
+        let q_w = ctx.animate_value_with_time(Id::new("imm-side-w"), side_goal, T_SLOW);
         let fits = area.width() - q_w - pad >= 420.0;
         // Up next slides in from the right; the record moves over to make room.
         let qt = egui::emath::easing::cubic_out(ctx.animate_bool_with_time(Id::new("imm-q-open"), self.imm_queue && fits, T_SLOW));
@@ -409,9 +560,16 @@ impl App {
                 self.actions.push(Action::ToggleImmersive);
             }
             let qr = er.translate(vec2(-48.0, 0.0));
-            let tip = if self.imm_queue { "Hide Up next" } else { "Show Up next" };
-            if round_button(&top, qr, Id::new("imm-queue"), icons::LIST_MUSIC, self.imm_queue, tip).clicked() {
-                self.imm_queue = !self.imm_queue;
+            let lm = self.lyrics_mode();
+            let tip = if self.imm_queue && !lm { "Hide Up next" } else { "Show Up next" };
+            if round_button(&top, qr, Id::new("imm-queue"), icons::LIST_MUSIC, self.imm_queue && !lm, tip).clicked() {
+                self.toggle_side(true, false);
+            }
+            if self.settings.show_lyrics {
+                let ltip = if self.imm_queue && lm { "Hide lyrics" } else { "Show lyrics" };
+                if round_button(&top, qr.translate(vec2(-48.0, 0.0)), Id::new("imm-lyrics"), icons::LYRICS, self.imm_queue && lm, ltip).clicked() {
+                    self.toggle_side(true, true);
+                }
             }
         }
 
@@ -470,21 +628,88 @@ impl App {
 
         if qt > 0.01 {
             let qr = Rect::from_min_max(pos2(area.right() - q_w, area.top() + 56.0), area.max).translate(vec2((1.0 - qt) * (q_w + pad + S6), 0.0));
-            p.rect_filled(qr, 16.0, with_alpha(Color32::BLACK, 0.34 * qt));
-            p.rect_stroke(qr, 16.0, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.06 * qt)), egui::StrokeKind::Inside);
-            let inner = qr.shrink2(vec2(S3, S4));
-            w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), with_alpha(TEXT, qt), inner.width());
-            let lr = Rect::from_min_max(pos2(inner.left(), inner.top() + 34.0), inner.max);
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).id_salt("imm-q").layout(egui::Layout::top_down(egui::Align::Min)));
-            child.multiply_opacity(qt);
-            self.queue_list(&mut child, lr, false, "imm");
-            if ui.rect_contains_pointer(qr) {
-                self.imm_active = now;
+            if lm {
+                // Lyrics float on the background, no panel behind them.
+                let lr = Rect::from_min_max(pos2(qr.left(), area.top() + 40.0), qr.max);
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).id_salt("imm-q").layout(egui::Layout::top_down(egui::Align::Min)));
+                child.multiply_opacity(qt);
+                self.lyrics_panel(&mut child, lr, (side_goal / 18.0).clamp(26.0, 42.0).round(), "imm");
+            } else {
+                p.rect_filled(qr, 16.0, with_alpha(Color32::BLACK, 0.34 * qt));
+                p.rect_stroke(qr, 16.0, egui::Stroke::new(1.0, with_alpha(Color32::WHITE, 0.06 * qt)), egui::StrokeKind::Inside);
+                let inner = qr.shrink2(vec2(S3, S4));
+                w::text(&p, pos2(inner.left() + S1, inner.top() + 12.0), Align2::LEFT_CENTER, "Up next", h2(), with_alpha(TEXT, qt), inner.width());
+                let lr = Rect::from_min_max(pos2(inner.left(), inner.top() + 34.0), inner.max);
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(lr).id_salt("imm-q").layout(egui::Layout::top_down(egui::Align::Min)));
+                child.multiply_opacity(qt);
+                self.queue_list(&mut child, lr, false, "imm");
+                if ui.rect_contains_pointer(qr) {
+                    self.imm_active = now;
+                }
             }
         }
         // Last, so nothing drawn above sets the pointer back.
         if hide_cursor {
             ctx.set_cursor_icon(CursorIcon::None);
         }
+    }
+}
+
+/// What the lyrics panel keeps between frames.
+#[derive(Default)]
+pub(crate) struct LyricsView {
+    /// The lines broken into rows, for one song at one size.
+    layout: Option<LyricsLayout>,
+    /// Where the list is scrolled to; it eases toward the line being sung. None: jump there.
+    shown: Option<f32>,
+    /// A wheel scroll away from the line being sung, and when it last moved.
+    off: f32,
+    touched: f64,
+    /// The line being sung, the one before it, and when it changed (they cross-fade).
+    line: Option<usize>,
+    prev: Option<usize>,
+    changed: f64,
+}
+
+struct LyricsLayout {
+    /// Song, number of lines, font size, row width and screen scale it was made for.
+    key: (u64, usize, u32, u32, u32),
+    lines: Vec<LaidLine>,
+    row_h: f32,
+    height: f32,
+}
+
+struct LaidLine {
+    rows: Vec<String>,
+    /// From the top of the first line.
+    top: f32,
+    /// Arabic or Hebrew: rows line up on the right.
+    rtl: bool,
+}
+
+impl LyricsLayout {
+    fn new(ui: &Ui, l: &lyrics::Lyrics, font: &FontId, wrap: f32, key: (u64, usize, u32, u32, u32)) -> Self {
+        let p = ui.painter();
+        let width = |s: &str| p.layout_no_wrap(s.to_string(), font.clone(), Color32::PLACEHOLDER).size().x;
+        let row_h = ui.fonts_mut(|f| f.row_height(font));
+        let gap = font.size * 0.9;
+        let (mut y, mut rtl) = (0.0, false);
+        let lines = l
+            .lines
+            .iter()
+            .map(|(_, text)| {
+                // A pause sits on the same side as the words before it.
+                let rows = if text.is_empty() {
+                    vec!["· · ·".to_string()]
+                } else {
+                    rtl = theme::has_rtl(text);
+                    lyrics::wrap_words(text, wrap, width)
+                };
+                let line = LaidLine { top: y, rtl, rows };
+                y += line.rows.len() as f32 * row_h + gap;
+                line
+            })
+            .collect();
+        Self { key, lines, row_h, height: y }
     }
 }

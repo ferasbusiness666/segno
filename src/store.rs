@@ -138,6 +138,10 @@ pub struct Settings {
     pub last_version: String,
     /// The record turns on the Now Playing screens (redraws ~30 times a second while shown).
     pub spin_record: bool,
+    /// Show synced lyrics (found on LRCLIB by song and artist name).
+    pub show_lyrics: bool,
+    /// The side panel on Now Playing shows lyrics instead of Up next.
+    pub lyrics_panel: bool,
     /// Agreed to only download music they're allowed to (asked before the first download).
     pub download_rights_ok: bool,
 }
@@ -167,6 +171,8 @@ impl Default for Settings {
             update_checked: 0,
             last_version: String::new(),
             spin_record: true,
+            show_lyrics: true,
+            lyrics_panel: false,
             download_rights_ok: false,
         }
     }

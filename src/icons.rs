@@ -40,9 +40,19 @@ pub const VOLUME_2: &str = "\u{E1AB}";
 pub const VOLUME_X: &str = "\u{E1AC}";
 pub const X: &str = "\u{E1B2}";
 pub const INFO: &str = "\u{E0F9}";
+/// Not in the icon font: drawn as three lines of text.
+pub const LYRICS: &str = "lyrics";
 
 /// Paint a line icon centered at `c`, `size` points tall.
 pub fn glyph(p: &Painter, c: Pos2, icon: &str, size: f32, color: Color32) {
+    if icon == LYRICS {
+        let (w, t) = (size * 0.78, size * 0.1);
+        for (k, len) in [1.0f32, 0.6, 0.85].into_iter().enumerate() {
+            let y = c.y + (k as f32 - 1.0) * size * 0.27;
+            p.line_segment([pos2(c.x - w / 2.0, y), pos2(c.x - w / 2.0 + w * len, y)], Stroke::new(t, color));
+        }
+        return;
+    }
     p.text(c, Align2::CENTER_CENTER, icon, FontId::new(size, crate::theme::icon_family()), color);
 }
 
