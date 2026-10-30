@@ -87,18 +87,27 @@ pub fn get_page(url: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-/// A small text answer from an API. A plain "not found" is `Ok(None)`; anything else that
-/// goes wrong (no internet, a server error) is an `Err`.
-pub fn get_text_opt(url: &str) -> Result<Option<String>, String> {
-    match agent().get(url).call() {
-        Ok(mut resp) => resp
-            .body_mut()
-            .with_config()
-            .limit(4 << 20)
-            .read_to_string()
-            .map(Some)
-            .map_err(|e| e.to_string()),
-        Err(ureq::Error::StatusCode(404)) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
+/// What a small web API answered.
+pub enum Answer {
+    Text(String),
+    NotFound,
+    /// Busy or overloaded (429, 502–504): ask again after this long.
+    Busy(Duration),
+    /// Any other error status.
+    Broken(u16),
+}
+
+/// A small text answer from a web API. `Err` is a connection problem (no internet, timeout).
+pub fn get_api(url: &str) -> Result<Answer, String> {
+    let mut resp = agent().get(url).config().http_status_as_error(false).build().call().map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    Ok(match status {
+        200..=299 => Answer::Text(resp.body_mut().with_config().limit(4 << 20).read_to_string().map_err(|e| e.to_string())?),
+        404 => Answer::NotFound,
+        429 | 502 | 503 | 504 => {
+            let secs = resp.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|s| s.trim().parse::<u64>().ok());
+            Answer::Busy(Duration::from_secs(secs.unwrap_or(1).clamp(1, 5)))
+        }
+        s => Answer::Broken(s),
+    })
 }

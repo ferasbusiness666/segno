@@ -9,6 +9,12 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.14
+
+### Better
+- Lyrics show up the first time far more often. When LRCLIB doesn't have a song yet it goes looking for it, so Segno asks once more a few seconds later instead of saying "not found".
+- A busy moment on the lyrics site or a short drop in your connection no longer ends the search. Segno waits a second and asks again.
+
 ## 1.1.13
 
 ### New
