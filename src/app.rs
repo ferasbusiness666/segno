@@ -45,6 +45,8 @@ pub enum Action {
     Next,
     Prev,
     Seek(f32),
+    /// Look the lyrics up again, even if they weren't found last time.
+    RetryLyrics,
     Volume(f32),
     ToggleMute,
     ToggleShuffle,
@@ -698,20 +700,33 @@ impl App {
         if self.lyrics_for == Some(id) && !retry {
             return;
         }
+        self.ask_lyrics(id, false);
+    }
+
+    /// Send a song to the lyrics worker (`force`: even if it wasn't found last time).
+    fn ask_lyrics(&mut self, id: u64, force: bool) {
         let Some(info) = self.info_for(id) else { return };
         if self.lyrics_for != Some(id) {
             self.lyr = Default::default();
         }
         self.lyrics_for = Some(id);
         self.lyrics = crate::lyrics::State::Loading;
-        self.lyrics_asked = now;
+        self.lyrics_asked = self.ctx.input(|i| i.time);
+        // A song playing from a video: its own title and channel say more than the names
+        // cleaned from them (Spotify imports already have clean names).
+        let (title, artist, from_video) = match &info.preview {
+            Some(item) if item.find.is_empty() => (item.title.clone(), item.channel.clone(), true),
+            _ => (info.title, info.artist, false),
+        };
+        let artist = if artist == crate::library::UNKNOWN_ARTIST { String::new() } else { artist };
         let _ = self.lyrics_tx.send(crate::lyrics::Query {
             id,
             song: self.lib.get(id).map(|t| t.path.clone()),
-            title: info.title,
-            artist: info.artist,
-            album: info.album,
+            title,
+            artist,
+            from_video,
             duration: info.duration,
+            force,
         });
     }
 
@@ -1232,6 +1247,11 @@ impl App {
             }
             Action::Prev => self.player.send(Cmd::Prev),
             Action::Seek(s) => self.player.send(Cmd::Seek(s)),
+            Action::RetryLyrics => {
+                if let Some(id) = self.current_id() {
+                    self.ask_lyrics(id, true);
+                }
+            }
             Action::Volume(v) => {
                 self.player.send(Cmd::SetVolume(v));
                 self.settings.volume = v;

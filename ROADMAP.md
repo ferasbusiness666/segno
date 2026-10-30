@@ -125,7 +125,7 @@ Codex's order: 1. the four bugs, 2. cache mix-ups and a storage limit, 3. synced
 In this order:
 - ✅ **Fix the four bugs** Codex reproduced (1.1.9)
 - 🟡 **Preview cache**: no mix-ups between songs (1.1.9); still to do: a size limit you can set in Settings
-- ✅ **Synced lyrics** (1.1.12): lines scroll and light up with the song (free from LRCLIB), straight on the background beside the record on Now Playing and full screen, click a line to jump, Arabic reads right to left; your own .lrc file next to a song wins. Still to check: how well it matches YouTube titles on real songs
+- ✅ **Synced lyrics** (1.1.12): lines scroll and light up with the song (free from LRCLIB), straight on the background beside the record on Now Playing and full screen, click a line to jump, Arabic reads right to left; your own .lrc file next to a song wins. 1.1.13: Try again, plain lyrics when there are no timed ones, slowed/sped-up versions stretch the original, much better matching for YouTube titles (checked against LRCLIB with real songs). Idea: "Wrong lyrics? Pick another"
 - ⬜ **Online songs start sooner**: start playing while the song is still coming in, not after
 - ⬜ **Volume levelling**: loud and quiet songs play at the same level
 - ⬜ **Crossfade and gapless playback**: no gap between album songs

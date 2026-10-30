@@ -272,21 +272,33 @@ impl App {
         let p = ui.painter().clone();
         let ctx = ui.ctx().clone();
         let note = |main: &str, sub: &str| {
-            w::text(&p, area.center() - vec2(0.0, 10.0), Align2::CENTER_CENTER, main, h2(), TEXT_2, area.width());
-            w::text(&p, area.center() + vec2(0.0, 16.0), Align2::CENTER_CENTER, sub, small(), TEXT_3, area.width());
+            w::text(&p, area.center() - vec2(0.0, 10.0), Align2::CENTER_CENTER, main, h2(), TEXT, area.width());
+            w::text(&p, area.center() + vec2(0.0, 16.0), Align2::CENTER_CENTER, sub, small(), TEXT_2, area.width());
         };
         // Until the song playing has been looked up, whatever is in `lyrics` is another song's.
         let current = self.lyrics_for.is_some() && self.lyrics_for == self.current_id();
         let l = match (&self.lyrics, current) {
             (lyrics::State::Found(l), true) => Arc::clone(l),
-            (lyrics::State::Missing, true) => return note("No synced lyrics for this one", "Or put a .lrc file next to the song."),
+            (lyrics::State::Missing, true) => {
+                note("No lyrics found for this song", "Or put a .lrc file with the same name next to it.");
+                if retry_button(ui, area, salt) {
+                    self.actions.push(Action::RetryLyrics);
+                }
+                return;
+            }
             (lyrics::State::Failed, true) => {
+                note("Couldn't load lyrics", "Check your internet. Segno tries again by itself too.");
+                if retry_button(ui, area, salt) {
+                    self.actions.push(Action::RetryLyrics);
+                }
                 // The app asks again after half a minute; wake up for it.
                 ctx.request_repaint_after(Duration::from_secs(31));
-                return note("Couldn't load lyrics", "Check your internet. Segno tries again soon.");
+                return;
             }
             _ => return note("Looking for lyrics…", ""),
         };
+        // Plain lyrics aren't timed: they sit still, start at the top and scroll by hand.
+        let plain = !l.synced;
         let id = self.lyrics_for.unwrap_or(0);
         let now = ctx.input(|i| i.time);
         let pos = self.seek_preview.unwrap_or(self.pos);
@@ -317,15 +329,16 @@ impl App {
 
         // Keep the line being sung in place; the wheel looks ahead or back for a moment.
         let ai = idx.unwrap_or(0);
-        let center = lay.lines[ai].top + lay.lines[ai].rows.len() as f32 * lay.row_h / 2.0;
+        let center = if plain { 0.0 } else { lay.lines[ai].top + lay.lines[ai].rows.len() as f32 * lay.row_h / 2.0 };
         if ui.rect_contains_pointer(area) {
             let d = ctx.input(|i| i.smooth_scroll_delta.y);
             if d != 0.0 {
-                self.lyr.off = (self.lyr.off - d).clamp(-center, lay.height - center);
+                let (lo, hi) = if plain { (0.0, (lay.height - area.height() * 0.6).max(0.0)) } else { (-center, lay.height - center) };
+                self.lyr.off = (self.lyr.off - d).clamp(lo, hi);
                 self.lyr.touched = now;
             }
         }
-        if self.lyr.off != 0.0 {
+        if self.lyr.off != 0.0 && !plain {
             let quiet = now - self.lyr.touched;
             if quiet > 3.0 {
                 self.lyr.off = 0.0;
@@ -344,9 +357,12 @@ impl App {
         };
         self.lyr.shown = Some(shown);
 
-        let anchor = area.top() + area.height() * 0.42;
+        let anchor = if plain { area.top() + 44.0 } else { area.top() + area.height() * 0.42 };
         let edge_fade = (area.height() * 0.18).clamp(40.0, 160.0);
         let clip = p.with_clip_rect(area.intersect(p.clip_rect()));
+        if plain {
+            w::text(&p, pos2(area.left() + INSET, area.top() + 12.0), Align2::LEFT_CENTER, "Not timed to the song", small(), TEXT_2, area.width());
+        }
         for (i, line) in lay.lines.iter().enumerate() {
             let h = line.rows.len() as f32 * lay.row_h;
             let top = anchor + line.top - shown;
@@ -365,15 +381,23 @@ impl App {
             };
             let dim = (0.5 - 0.05 * (i as f32 - ai as f32).abs()).max(0.3);
             let mid = top + h / 2.0;
-            let edge = ((mid - area.top()) / edge_fade).min((area.bottom() - mid) / edge_fade).clamp(0.0, 1.0);
+            // Lines fade out toward the top and bottom instead of being cut off (plain lyrics
+            // only fade at the top once scrolled).
+            let from_top = if plain && shown < 1.0 { edge_fade } else { mid - area.top() };
+            let edge = (from_top / edge_fade).min((area.bottom() - mid) / edge_fade).clamp(0.0, 1.0);
             let edge = edge * edge * (3.0 - 2.0 * edge);
-            let hit = Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), h)).intersect(area);
-            let resp = ui.interact(hit, Id::new(("lyr-line", salt, i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-            if resp.clicked() {
-                self.actions.push(Action::Seek(l.lines[i].0));
-                self.lyr.off = 0.0;
-            }
-            let a = (egui::lerp(dim..=1.0, on) + if resp.hovered() { 0.2 } else { 0.0 }).min(1.0) * edge;
+            let a = if plain {
+                0.85
+            } else {
+                // Timed lines: click one to jump there.
+                let hit = Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), h)).intersect(area);
+                let resp = ui.interact(hit, Id::new(("lyr-line", salt, i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+                if resp.clicked() {
+                    self.actions.push(Action::Seek(l.lines[i].0));
+                    self.lyr.off = 0.0;
+                }
+                (egui::lerp(dim..=1.0, on) + if resp.hovered() { 0.2 } else { 0.0 }).min(1.0)
+            } * edge;
             for (k, row) in line.rows.iter().enumerate() {
                 // line_job puts right-to-left words in the right order.
                 let g = p.layout_job(theme::line_job(row, font.clone(), Color32::PLACEHOLDER, wrap));
@@ -382,7 +406,7 @@ impl App {
             }
         }
         // Wake up for the next line (the record may not be turning to do it for us).
-        if self.ps.playing {
+        if self.ps.playing && !plain {
             let wait = l.next_start(idx).map_or(1.0, |n| (n - pos - LEAD).max(0.0));
             ctx.request_repaint_after(Duration::from_secs_f32(wait.clamp(0.016, 1.0)));
         }
@@ -655,6 +679,13 @@ impl App {
     }
 }
 
+/// "Try again" under the lyrics panel's message.
+fn retry_button(ui: &mut Ui, area: Rect, salt: &str) -> bool {
+    let r = Rect::from_center_size(area.center() + vec2(0.0, 64.0), vec2(area.width(), 36.0));
+    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(r).id_salt(("lyr-retry", salt)).layout(egui::Layout::top_down(egui::Align::Center)));
+    w::pill(&mut b, "Try again", Some(icons::REFRESH), w::PillKind::Ghost).clicked()
+}
+
 /// What the lyrics panel keeps between frames.
 #[derive(Default)]
 pub(crate) struct LyricsView {
@@ -700,7 +731,7 @@ impl LyricsLayout {
             .map(|(_, text)| {
                 // A pause sits on the same side as the words before it.
                 let rows = if text.is_empty() {
-                    vec!["· · ·".to_string()]
+                    vec![if l.synced { "· · ·".to_string() } else { String::new() }]
                 } else {
                     rtl = theme::has_rtl(text);
                     lyrics::wrap_words(text, wrap, width)

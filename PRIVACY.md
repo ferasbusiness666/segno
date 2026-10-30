@@ -14,7 +14,7 @@ Segno connects to the internet only to:
 
 - search, play and download from YouTube and other sites you search or paste links from
 - read the public Spotify page when you paste a Spotify link
-- look up synced lyrics on lrclib.net when you open the lyrics panel (it gets the song title, artist, album and length; turn it off in Settings and nothing is sent)
+- look up synced lyrics on lrclib.net when you open the lyrics panel (it gets the song and artist names and the song's length; turn it off in Settings and nothing is sent)
 - download yt-dlp (and Deno, if needed) to do that
 - check GitHub for new versions (not in the Microsoft Store version, which gets updates from the Store)
 

@@ -9,6 +9,16 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.13
+
+### New
+- "Try again" on lyrics that weren't found or couldn't load.
+- Plain lyrics: when a song has no timed lyrics, the words still show (they just don't follow along).
+- Slowed and sped-up versions get the original song's timed lyrics, stretched to fit.
+
+### Better
+- Lyrics are found for many more songs, especially from YouTube: titles in two languages split by "|", "Song - Artist" as well as "Artist - Song", several artists joined with "x", "&" or "و", and channels that aren't the artist.
+
 ## 1.1.12
 
 ### New
