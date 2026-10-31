@@ -155,6 +155,11 @@ In this order:
 
 ## Later: lyrics timing (kept as it is for now)
 
+- ⬜ **More lyrics sources, in this order:**
+  1. **YouTube's own captions** for songs playing from YouTube: many official videos have the lyrics uploaded as captions, timed to that exact video (fixes "different intro"). yt-dlp can fetch them. Skip auto-generated captions (rough for music).
+  2. **LRCLIB** (what Segno uses now) for everything else.
+  3. **NetEase Cloud Music** as a last backup: huge timed library, but an unofficial API that could break or be blocked.
+
 - ⬜ **Better lyrics sync.** The Earlier/Later arrows (1.1.17) help but aren't enough. Seen by Feras:
   - off at the start (different intro): fix by comparing with the plain audio version's fingerprint and sliding to line up
   - off more and more as the song plays: a version at a slightly different speed, or Segno's own clock drifting; check the player's position first with a song whose lyrics are known to be right
