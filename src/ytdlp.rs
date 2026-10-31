@@ -860,10 +860,17 @@ fn unzip_one(zip_path: &Path, name: &str, dest: &Path) -> Result<(), String> {
 }
 
 /// `yt-dlp -U` on our own copy. Returns true if it ran.
+/// yt-dlp's own cache, inside Segno's.
+fn cache_dir() -> PathBuf {
+    crate::store::cache_dir().join("yt-dlp")
+}
+
 fn self_update(ctx: &WorkerCtx, tools: &Tools) -> bool {
     if !tools.managed || UPDATED_THIS_SESSION.swap(true, Ordering::SeqCst) {
         return false;
     }
+    // Something failed that a newer yt-dlp may fix; a stale cache could be to blame too.
+    let _ = std::fs::remove_dir_all(cache_dir());
     let prev = ctx.shared.lk().setup.clone();
     ctx.set_setup(Setup::Working {
         label: "Updating the downloader".into(),
@@ -891,7 +898,11 @@ fn base_cmd(tools: &Tools) -> Command {
     hidden(&mut c);
     c.env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
-        .args(["--encoding", "utf-8", "--ignore-config", "--no-cache-dir"]);
+        .args(["--encoding", "utf-8", "--ignore-config"])
+        // yt-dlp keeps YouTube's player code and the challenge solver here, instead of
+        // fetching and solving them again for every song (seconds each time).
+        .arg("--cache-dir")
+        .arg(cache_dir());
     if tools.js_flag {
         if let Some((name, path)) = &tools.js {
             c.arg("--js-runtimes").arg(format!("{name}:{}", path.display()));
@@ -1059,6 +1070,16 @@ fn run_search(ctx: &WorkerCtx, query: &str) -> Result<(Vec<YtItem>, Option<Playl
     if let Some(url) = &link {
         if crate::spotify::is_spotify(url) {
             return crate::spotify::resolve(url);
+        }
+    }
+    // Words, not a link: ask YouTube's search directly first, much faster than starting
+    // yt-dlp. Anything odd and yt-dlp does it as before.
+    if link.is_none() {
+        if let Ok(v) = crate::ytsearch::search(q) {
+            let (items, _) = parse_results(&v, "");
+            if !items.is_empty() {
+                return Ok((items, None));
+            }
         }
     }
     let tools = ensure_tools(ctx)?;
@@ -1341,6 +1362,12 @@ fn item_from(v: &Value, fallback_channel: &str, root_ie: &str, link: &str) -> Op
         site,
         ..Default::default()
     })
+}
+
+/// Read a search answer, for tests elsewhere.
+#[cfg(test)]
+pub fn read_search(v: &Value) -> (Vec<YtItem>, Option<PlaylistInfo>) {
+    parse_results(v, "")
 }
 
 fn parse_results(v: &Value, link: &str) -> (Vec<YtItem>, Option<PlaylistInfo>) {

@@ -22,6 +22,7 @@ mod update;
 mod views;
 mod widgets;
 mod ytdlp;
+mod ytsearch;
 
 use std::sync::OnceLock;
 

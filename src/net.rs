@@ -69,14 +69,14 @@ pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(u64, Option<u64
     Ok(())
 }
 
-/// A web page as text, asked for the way a browser would (some sites serve bots a bare page).
+/// How a browser introduces itself (some sites serve bots a bare page).
+const BROWSER: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+
+/// A web page as text, asked for the way a browser would.
 pub fn get_page(url: &str) -> Result<String, String> {
     let mut resp = agent()
         .get(url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
-        )
+        .header("User-Agent", BROWSER)
         .header("Accept-Language", "en")
         .call()
         .map_err(|e| e.to_string())?;
@@ -110,4 +110,23 @@ pub fn get_api(url: &str) -> Result<Answer, String> {
         }
         s => Answer::Broken(s),
     })
+}
+
+/// Send JSON the way a browser would and get the answer as text, giving up after `secs`.
+pub fn post_json(url: &str, body: &str, headers: &[(&str, &str)], secs: u64) -> Result<String, String> {
+    let mut req = agent()
+        .post(url)
+        .header("User-Agent", BROWSER)
+        .header("Accept-Language", "en")
+        .header("Content-Type", "application/json");
+    for (k, v) in headers {
+        req = req.header(*k, *v);
+    }
+    let mut resp = req
+        .config()
+        .timeout_global(Some(Duration::from_secs(secs)))
+        .build()
+        .send(body)
+        .map_err(|e| e.to_string())?;
+    resp.body_mut().with_config().limit(16 << 20).read_to_string().map_err(|e| e.to_string())
 }

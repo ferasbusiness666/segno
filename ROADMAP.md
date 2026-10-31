@@ -126,7 +126,7 @@ In this order:
 - ✅ **Fix the four bugs** Codex reproduced (1.1.9)
 - 🟡 **Preview cache**: no mix-ups between songs (1.1.9). A size limit in Settings only if it turns out to grow big (it clears after 3 days)
 - ✅ **Synced lyrics** (1.1.12): lines scroll and light up with the song (free from LRCLIB), straight on the background beside the record on Now Playing and full screen, click a line to jump, Arabic reads right to left; your own .lrc file next to a song wins. 1.1.13: Try again, plain lyrics when there are no timed ones, slowed/sped-up versions stretch the original, much better matching for YouTube titles (checked against LRCLIB with real songs). 1.1.16: lyrics in every language (Japanese, Chinese, Korean, Thai, Hindi… with Windows' own fonts, loaded only when needed), "Wrong lyrics?", timed lyrics saved as .lrc next to songs, better exact matching. Next idea: pick from a list of matches
-- ⬜ **Online songs start sooner**: start playing while the song is still coming in, not after
+- 🟡 **Online songs start sooner**: 1.1.19 keeps yt-dlp's cache (it used to re-solve YouTube's player code for every song) and searches YouTube directly (no yt-dlp start per search). Still to do: start playing while the song is still coming in, not after; maybe yt-dlp's unpacked Windows build (yt-dlp_win.zip) so it doesn't unpack itself on every start
 - ⬜ **Volume levelling**: loud and quiet songs play at the same level
 - ⬜ **Crossfade and gapless playback**: no gap between album songs
 - ⬜ **No stutter when the laptop lags**: much better since the 150 ms output buffer, but music

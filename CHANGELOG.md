@@ -9,6 +9,12 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.19
+
+### Better
+- Songs from YouTube start sooner. The downloader now keeps what it learns about YouTube instead of working it out again for every song.
+- YouTube search is much faster. Segno asks YouTube directly instead of starting the downloader for every search.
+
 ## 1.1.18
 
 ### New
