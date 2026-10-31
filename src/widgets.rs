@@ -542,6 +542,7 @@ pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, body_text: &str, button
 
 /// Rounded search box with icon and clear button. Returns the text edit output.
 pub fn search_box(ui: &mut Ui, value: &mut String, hint: &str, id: Id, width: f32) -> egui::text_edit::TextEditOutput {
+    crate::theme::need_fonts_for(value);
     let height = 38.0;
     let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     let focused = ui.memory(|m| m.has_focus(id));

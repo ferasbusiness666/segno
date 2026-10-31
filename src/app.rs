@@ -47,8 +47,9 @@ pub enum Action {
     Next,
     Prev,
     Seek(f32),
-    /// Look the lyrics up again, even if they weren't found last time.
-    RetryLyrics,
+    /// Look the lyrics up again, even if they weren't found last time; `avoid`: the words'
+    /// key of wrong lyrics to skip.
+    RetryLyrics { avoid: Option<u64> },
     Volume(f32),
     ToggleMute,
     ToggleShuffle,
@@ -301,7 +302,6 @@ pub struct App {
     settings_dirty: Option<Instant>,
     last_save: Instant,
     resume_restored: bool,
-    cjk_loaded: bool,
     pub ctx: egui::Context,
 }
 
@@ -452,7 +452,6 @@ impl App {
             settings_dirty: None,
             last_save: Instant::now(),
             resume_restored: false,
-            cjk_loaded: false,
             ctx: ctx.clone(),
         };
         // Restore the queue and position from last time (paused, ready to continue).
@@ -704,11 +703,11 @@ impl App {
         if self.lyrics_for == Some(id) && !retry {
             return;
         }
-        self.ask_lyrics(id, false);
+        self.ask_lyrics(id, false, None);
     }
 
     /// Send a song to the lyrics worker (`force`: even if it wasn't found last time).
-    fn ask_lyrics(&mut self, id: u64, force: bool) {
+    fn ask_lyrics(&mut self, id: u64, force: bool, avoid: Option<u64>) {
         let Some(info) = self.info_for(id) else { return };
         if self.lyrics_for != Some(id) {
             self.lyr = Default::default();
@@ -731,6 +730,8 @@ impl App {
             from_video,
             duration: info.duration,
             force,
+            beside: self.settings.lyrics_beside,
+            avoid,
         });
     }
 
@@ -1053,11 +1054,8 @@ impl App {
     // Background events (also runs while the window is hidden)
 
     fn logic_events(&mut self, ctx: &egui::Context) {
+        theme::load_wanted_fonts(ctx);
         while let Ok(ev) = self.lib_rx.try_recv() {
-            if !self.cjk_loaded && ev.tracks.iter().any(|t| theme::has_cjk(&t.title) || theme::has_cjk(&t.artist)) {
-                theme::add_cjk_fallback(ctx);
-                self.cjk_loaded = true;
-            }
             self.lib.set_tracks(ev.tracks);
             self.lib.scanning = ev.scanning;
             self.lib.loaded_once = true;
@@ -1108,6 +1106,11 @@ impl App {
         self.sync_lyrics();
         self.sync_import();
         while let Ok((id, st)) = self.lyrics_rx.try_recv() {
+            if let crate::lyrics::State::Found(l) = &st {
+                for (_, line) in &l.lines {
+                    theme::need_fonts_for(line);
+                }
+            }
             if self.lyrics_for == Some(id) {
                 self.lyrics = st;
             }
@@ -1317,9 +1320,9 @@ impl App {
             }
             Action::Prev => self.player.send(Cmd::Prev),
             Action::Seek(s) => self.player.send(Cmd::Seek(s)),
-            Action::RetryLyrics => {
+            Action::RetryLyrics { avoid } => {
                 if let Some(id) = self.current_id() {
-                    self.ask_lyrics(id, true);
+                    self.ask_lyrics(id, true, avoid);
                 }
             }
             Action::Volume(v) => {

@@ -2129,6 +2129,7 @@ impl App {
         let mut spin = self.settings.spin_record;
         let mut tray = self.settings.close_to_tray;
         let mut lyr = self.settings.show_lyrics;
+        let mut beside = self.settings.lyrics_beside;
         self.settings_card(ui, "", "", |app, ui| {
             if toggle_row(ui, "Keep playing when the queue ends", "Carries on with your library, so the music doesn't stop.", &mut auto) {
                 app.actions.push(Action::SetAutoplay(auto));
@@ -2146,6 +2147,13 @@ impl App {
             if toggle_row(ui, "Synced lyrics", "Finds lyrics on lrclib.net when you open them, using the song and artist name. Off sends nothing.", &mut lyr) {
                 app.settings.show_lyrics = lyr;
                 app.settings.save();
+            }
+            if lyr {
+                settings_sep(ui);
+                if toggle_row(ui, "Save lyrics next to songs", "Keeps them as .lrc files beside your music files, for offline and other players.", &mut beside) {
+                    app.settings.lyrics_beside = beside;
+                    app.settings.save();
+                }
             }
         });
     }

@@ -282,14 +282,14 @@ impl App {
             (lyrics::State::Missing, true) => {
                 note("No lyrics found for this song", "Or put a .lrc file with the same name next to it.");
                 if retry_button(ui, area, salt) {
-                    self.actions.push(Action::RetryLyrics);
+                    self.actions.push(Action::RetryLyrics { avoid: None });
                 }
                 return;
             }
             (lyrics::State::Failed, true) => {
                 note("Couldn't load lyrics", "Check your internet. Segno tries again by itself too.");
                 if retry_button(ui, area, salt) {
-                    self.actions.push(Action::RetryLyrics);
+                    self.actions.push(Action::RetryLyrics { avoid: None });
                 }
                 // The app asks again after half a minute; wake up for it.
                 ctx.request_repaint_after(Duration::from_secs(31));
@@ -307,7 +307,8 @@ impl App {
         // Break the lines into rows once per song and size, not every frame.
         let font = FontId::new(size, theme::bold());
         let wrap = ((area.width() - 2.0 * INSET) / 8.0).floor().max(5.0) * 8.0;
-        let key = (id, l.lines.len(), size.to_bits(), wrap.to_bits(), ctx.pixels_per_point().to_bits());
+        // Laid out again when a font for another script arrives, so widths are right.
+        let key = (id, l.lines.len(), size.to_bits(), wrap.to_bits(), ctx.pixels_per_point().to_bits(), theme::fonts_version(&ctx));
         let lay = match self.lyr.layout.take() {
             Some(lay) if lay.key == key => lay,
             _ => {
@@ -362,6 +363,18 @@ impl App {
         let clip = p.with_clip_rect(area.intersect(p.clip_rect()));
         if plain {
             w::text(&p, pos2(area.left() + INSET, area.top() + 12.0), Align2::LEFT_CENTER, "Not timed to the song", small(), TEXT_2, area.width());
+        }
+        // "Wrong lyrics?" shows while the pointer is over the lyrics.
+        let over = ctx.animate_bool_with_time(Id::new(("lyr-over", salt)), ui.rect_contains_pointer(area), T);
+        if over > 0.01 {
+            let label = "Wrong lyrics?";
+            let wr = Rect::from_min_size(pos2(area.right() - INSET - w::text_width(ui, label, small_strong()) - 8.0, area.top()), vec2(w::text_width(ui, label, small_strong()) + 8.0, 24.0));
+            let resp = ui.interact(wr, Id::new(("lyr-wrong", salt)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+            let c = if resp.hovered() { TEXT } else { TEXT_2 };
+            w::text(&p, pos2(wr.right(), wr.center().y), Align2::RIGHT_CENTER, label, small_strong(), with_alpha(c, over), wr.width());
+            if resp.on_hover_text("Forget these lyrics and look for others").clicked() {
+                self.actions.push(Action::RetryLyrics { avoid: Some(l.words_key()) });
+            }
         }
         for (i, line) in lay.lines.iter().enumerate() {
             let h = line.rows.len() as f32 * lay.row_h;
@@ -703,8 +716,8 @@ pub(crate) struct LyricsView {
 }
 
 struct LyricsLayout {
-    /// Song, number of lines, font size, row width and screen scale it was made for.
-    key: (u64, usize, u32, u32, u32),
+    /// Song, number of lines, font size, row width, screen scale and fonts it was made for.
+    key: (u64, usize, u32, u32, u32, usize),
     lines: Vec<LaidLine>,
     row_h: f32,
     height: f32,
@@ -719,7 +732,7 @@ struct LaidLine {
 }
 
 impl LyricsLayout {
-    fn new(ui: &Ui, l: &lyrics::Lyrics, font: &FontId, wrap: f32, key: (u64, usize, u32, u32, u32)) -> Self {
+    fn new(ui: &Ui, l: &lyrics::Lyrics, font: &FontId, wrap: f32, key: (u64, usize, u32, u32, u32, usize)) -> Self {
         let p = ui.painter();
         let width = |s: &str| p.layout_no_wrap(s.to_string(), font.clone(), Color32::PLACEHOLDER).size().x;
         let row_h = ui.fonts_mut(|f| f.row_height(font));

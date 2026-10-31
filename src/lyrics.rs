@@ -17,7 +17,12 @@ const KEEP_DAYS: u64 = 120;
 /// A cut of the song more than this many seconds longer or shorter would drift out of sync.
 const MAX_DRIFT: f32 = 4.0;
 /// Most requests one song may cost (LRCLIB allows about 90 a minute).
-const MAX_REQUESTS: usize = 6;
+const MAX_REQUESTS: usize = 8;
+/// Written into "not found" marks. Raised when the matching gets better, so songs an older
+/// version couldn't find are asked about again.
+const MATCHER: &str = "2";
+/// The first line of `.lrc` files Segno writes.
+const SEGNO_TAG: &str = "[re:Segno]";
 /// LRCLIB goes looking for songs it doesn't have in the background; a song not found the
 /// first time is asked about once more this much later.
 const FOLLOW_UP: Duration = Duration::from_secs(15);
@@ -63,15 +68,24 @@ impl Lyrics {
         Lyrics { lines, synced: false }
     }
 
-    /// Back to LRC text, to keep on disk.
+    /// Back to LRC text, to keep on disk. The `[re:Segno]` tag marks files Segno wrote, so it
+    /// knows it may replace them ("Wrong lyrics?") and never touches anyone else's.
     fn to_lrc(&self) -> String {
-        self.lines
+        let lines: String = self
+            .lines
             .iter()
             .map(|(t, w)| {
                 let cs = (t * 100.0).round() as u64;
                 format!("[{:02}:{:02}.{:02}]{w}\n", cs / 6000, cs % 6000 / 100, cs % 100)
             })
-            .collect()
+            .collect();
+        format!("{SEGNO_TAG}\n{lines}")
+    }
+
+    /// Tells lyrics apart by their words alone (timed or not), for "Wrong lyrics?".
+    pub fn words_key(&self) -> u64 {
+        let words: Vec<String> = self.lines.iter().filter(|(_, w)| !w.is_empty()).map(|(_, w)| w.to_lowercase()).collect();
+        store::hash_bytes(words.join("\n").as_bytes())
     }
 }
 
@@ -99,6 +113,10 @@ pub struct Query {
     pub duration: f32,
     /// Ask again even if it wasn't found last time ("Try again").
     pub force: bool,
+    /// Keep timed lyrics as a `.lrc` file next to the song, too.
+    pub beside: bool,
+    /// "Wrong lyrics?": forget what was found (its words' key) and look for something else.
+    pub avoid: Option<u64>,
 }
 
 /// Start the lyrics worker. Songs are looked up one at a time and only the newest waiting one
@@ -124,6 +142,9 @@ enum Step {
 }
 
 fn lookup(q: &Query, last_try: bool) -> Step {
+    if q.avoid.is_some() {
+        forget(q);
+    }
     if let Some(state) = saved(q) {
         return Step::Done(state);
     }
@@ -307,10 +328,34 @@ fn is_version(part: &str) -> bool {
     speed_of(&t).is_some() || t.contains("reverb") || t.contains("remaster") || t.contains("bass boost") || t.split_whitespace().any(|w| w == "8d")
 }
 
+/// "01 Song", "1. Song", "03 - Song" (titles taken from file names) → "Song". "7 Rings" and
+/// "22" stay as they are.
+fn strip_track_number(title: &str) -> &str {
+    let t = title.trim_start();
+    let digits = t.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 || digits > 3 {
+        return t;
+    }
+    let rest = &t[digits..];
+    let after = if digits == 2 && t.starts_with('0') && rest.starts_with(' ') {
+        rest
+    } else if let Some(r) = rest.strip_prefix(". ").or_else(|| rest.strip_prefix(" - ")).or_else(|| rest.strip_prefix('_')) {
+        r
+    } else {
+        return t;
+    };
+    let after = after.trim_start_matches([' ', '-', '.', '_']);
+    if after.is_empty() {
+        t
+    } else {
+        after
+    }
+}
+
 /// "Song (Official Video) [Remastered 2011]" → "Song". Speed edits ("(Slowed)") stay: they
 /// have lyrics of their own on LRCLIB.
 fn clean_title(title: &str) -> String {
-    let t = crate::ytdlp::remove_junk(title);
+    let t = crate::ytdlp::remove_junk(strip_track_number(title));
     strip_versions(&t, |p| p.to_lowercase().contains("remaster"))
 }
 
@@ -389,6 +434,14 @@ fn without_guests(s: &str) -> &str {
         .find(|&i| FEAT.iter().any(|f| b.len() - i >= f.len() && b[i..i + f.len()].eq_ignore_ascii_case(f.as_bytes())))
         .unwrap_or(b.len());
     s[..cut].trim()
+}
+
+/// The bare name of a song: "Mamushi (feat. Yuki Chiba)" → "Mamushi", "Song - Radio Edit" →
+/// "Song".
+fn bare_name(song: &str) -> String {
+    let s = song.split(['(', '[']).next().unwrap_or("");
+    let s = s.split(" - ").next().unwrap_or("");
+    without_guests(s).trim().to_string()
 }
 
 /// Looks like a list of artists rather than a song's name.
@@ -512,6 +565,13 @@ impl Entry {
         self.plain.as_deref().filter(|s| !s.trim().is_empty())
     }
 
+    /// The words' keys of its timed and plain lyrics.
+    fn words_keys(&self) -> Vec<u64> {
+        let mut k: Vec<u64> = self.synced().map(|s| parse_lrc(s).words_key()).into_iter().collect();
+        k.extend(self.plain().map(|p| Lyrics::plain(p).words_key()));
+        k
+    }
+
     /// How far its length is from `dur` (unknown lengths count as a near miss).
     fn off(&self, dur: f32) -> f32 {
         match self.duration {
@@ -591,9 +651,11 @@ enum Pick {
 /// stretched to its length (taken from the length most entries agree on). Otherwise plain
 /// lyrics of the closest length, but only when the artist matched too: a song name alone
 /// ("Addiction") is shared by too many songs.
-fn choose(entries: &[Entry], pairs: &[(String, String)], dur: f32, speed: Option<Speed>) -> Option<Pick> {
+fn choose(entries: &[Entry], pairs: &[(String, String)], dur: f32, speed: Option<Speed>, avoid: Option<u64>) -> Option<Pick> {
     let fits = |e: &&Entry| {
-        !e.instrumental && pairs.iter().any(|(s, a)| same_song(&e.track, s) && (a.is_empty() || same_artist(&e.artist, a)))
+        !e.instrumental
+            && !avoid.is_some_and(|k| e.words_keys().contains(&k))
+            && pairs.iter().any(|(s, a)| same_song(&e.track, s) && (a.is_empty() || same_artist(&e.artist, a)))
     };
     let artist_known = |e: &&Entry| pairs.iter().any(|(s, a)| !a.is_empty() && same_song(&e.track, s) && same_artist(&e.artist, a));
     let ok: Vec<&Entry> = entries.iter().filter(fits).collect();
@@ -654,19 +716,31 @@ fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, String> {
     let Some((song, artist)) = pairs.first().cloned() else { return Ok(None) };
     let dur = q.duration;
     let speed = speed_of(&q.title);
-    let mut entries: Vec<Entry> = Vec::new();
-    let mut error = None;
 
-    // The exact song: LRCLIB matches the names and a length within 2 seconds.
-    let mut urls = Vec::new();
-    if !artist.is_empty() {
-        let mut u = format!("https://lrclib.net/api/get?track_name={}&artist_name={}", enc(&song), enc(&artist));
-        if (1.0..=3600.0).contains(&dur) {
-            u.push_str(&format!("&duration={}", dur.round() as u32));
+    // Exact asks first: LRCLIB matches the names itself, and a length within 2 seconds, so
+    // what it sends back is trusted. Each name is tried as it is and bare ("Song" for
+    // "Song (feat. X)", only the first artist).
+    let mut exact: Vec<(String, String)> = Vec::new();
+    for (s, a) in pairs.iter().take(2).filter(|(_, a)| !a.is_empty()) {
+        for v in [(s.clone(), a.clone()), (bare_name(s), primary_artist(a).to_string())] {
+            if !v.0.is_empty() && !exact.iter().any(|e| key(&e.0) == key(&v.0) && key(&e.1) == key(&v.1)) {
+                exact.push(v);
+            }
         }
-        urls.push((u, false));
     }
+    exact.truncate(3);
+    let mut urls: Vec<(String, bool)> = exact
+        .iter()
+        .map(|(s, a)| {
+            let mut u = format!("https://lrclib.net/api/get?track_name={}&artist_name={}", enc(s), enc(a));
+            if (1.0..=3600.0).contains(&dur) {
+                u.push_str(&format!("&duration={}", dur.round() as u32));
+            }
+            (u, false)
+        })
+        .collect();
     // Then searches: forgiving about the song's name, and only the first artist.
+    let first_search = urls.len();
     for (s, a) in &pairs {
         let a = primary_artist(a);
         let mut u = format!("https://lrclib.net/api/search?track_name={}", enc(s));
@@ -680,14 +754,27 @@ fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, String> {
         let base = without_version(&song);
         if !base.is_empty() && base != song {
             let a = primary_artist(&artist);
-            urls.insert(2.min(urls.len()), (format!("https://lrclib.net/api/search?track_name={}&artist_name={}", enc(&base), enc(a)), true));
+            urls.insert((first_search + 1).min(urls.len()), (format!("https://lrclib.net/api/search?track_name={}&artist_name={}", enc(&base), enc(a)), true));
         }
     }
 
+    let mut entries: Vec<Entry> = Vec::new();
+    // Plain lyrics from an exact ask, if timed ones never turn up.
+    let mut exact_plain: Option<String> = None;
+    let mut error = None;
     for (url, list) in urls.into_iter().take(MAX_REQUESTS) {
         match ask(&url) {
             Ok(Some(body)) if list => entries.extend(serde_json::from_str::<Vec<Entry>>(&body).unwrap_or_default()),
-            Ok(Some(body)) => entries.extend(serde_json::from_str::<Entry>(&body).ok()),
+            Ok(Some(body)) => {
+                let wanted = |e: &Entry| !e.instrumental && !q.avoid.is_some_and(|k| e.words_keys().contains(&k));
+                if let Some(e) = serde_json::from_str::<Entry>(&body).ok().filter(wanted) {
+                    if let Some(text) = e.synced().filter(|_| e.off(dur) <= MAX_DRIFT) {
+                        return Ok(Some(parse_lrc(text)));
+                    }
+                    exact_plain = exact_plain.or_else(|| e.plain().map(String::from));
+                    entries.push(e);
+                }
+            }
             Ok(None) => {}
             Err(f) => {
                 // Still busy or offline after a second try: stop for now.
@@ -695,11 +782,11 @@ fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, String> {
                 break;
             }
         }
-        if let Some(Pick::Synced(text)) = choose(&entries, &pairs, dur, None) {
+        if let Some(Pick::Synced(text)) = choose(&entries, &pairs, dur, None, q.avoid) {
             return Ok(Some(parse_lrc(&text)));
         }
     }
-    let found = match choose(&entries, &pairs, dur, speed) {
+    let found = match choose(&entries, &pairs, dur, speed, q.avoid) {
         Some(Pick::Synced(text)) => Some(parse_lrc(&text)),
         Some(Pick::Stretched(text, ratio)) => {
             let mut l = parse_lrc(&text);
@@ -708,8 +795,9 @@ fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, String> {
             }
             Some(l)
         }
-        Some(Pick::Plain(text)) => Some(Lyrics::plain(&text)),
-        None => None,
+        // Plain lyrics: the exact match's first.
+        Some(Pick::Plain(text)) => Some(Lyrics::plain(exact_plain.as_deref().unwrap_or(&text))),
+        None => exact_plain.map(|t| Lyrics::plain(&t)),
     };
     match (found, error) {
         (Some(l), _) if !l.lines.is_empty() => Ok(Some(l)),
@@ -774,9 +862,35 @@ fn saved(q: &Query) -> Option<State> {
         .and_then(|t| kept(parse_lrc(&t)))
         .or_else(|| std::fs::read_to_string(&f.plain).ok().and_then(|t| kept(Lyrics::plain(&t))));
     if let Some(l) = found {
+        keep_beside(q, &l);
         return Some(State::Found(l));
     }
-    (!q.force && younger_than(&f.miss, MISS_DAYS)).then_some(State::Missing)
+    let missed = younger_than(&f.miss, MISS_DAYS) && std::fs::read_to_string(&f.miss).is_ok_and(|m| m.trim() == MATCHER);
+    (!q.force && missed).then_some(State::Missing)
+}
+
+/// Drop what's saved for a song: Segno's own copies, and a `.lrc` beside the song only if
+/// Segno wrote it.
+fn forget(q: &Query) {
+    let f = files(q);
+    for p in [&f.timed, &f.plain, &f.miss] {
+        let _ = std::fs::remove_file(p);
+    }
+    if let Some(lrc) = q.song.as_deref().map(|s| s.with_extension("lrc")) {
+        if std::fs::read_to_string(&lrc).is_ok_and(|t| t.starts_with(SEGNO_TAG)) {
+            let _ = std::fs::remove_file(lrc);
+        }
+    }
+}
+
+/// Timed lyrics also go next to the song as a `.lrc` file (same name), so they stay with the
+/// music, work offline and show in other players too. A file already there is never replaced.
+fn keep_beside(q: &Query, l: &Lyrics) {
+    let Some(song) = q.song.as_deref().filter(|_| q.beside && l.synced) else { return };
+    let path = song.with_extension("lrc");
+    if !path.exists() {
+        let _ = std::fs::write(path, l.to_lrc());
+    }
 }
 
 /// Ask LRCLIB and keep the answer on disk. "Not found" is only remembered on the `last_try`.
@@ -785,6 +899,7 @@ fn from_site(q: &Query, last_try: bool) -> State {
     let f = files(q);
     match from_lrclib(q) {
         Ok(Some(l)) => {
+            keep_beside(q, &l);
             let _ = if l.synced {
                 std::fs::write(&f.timed, l.to_lrc())
             } else {
@@ -795,7 +910,7 @@ fn from_site(q: &Query, last_try: bool) -> State {
         }
         Ok(None) => {
             if last_try {
-                let _ = std::fs::write(&f.miss, "");
+                let _ = std::fs::write(&f.miss, MATCHER);
             }
             State::Missing
         }
@@ -863,7 +978,7 @@ mod tests {
     #[test]
     fn saves_as_lrc_and_back() {
         let l = Lyrics { lines: vec![(59.996, "a".into()), (61.5, "b".into()), (600.0, String::new()), (601.0, "c".into())], synced: true };
-        assert_eq!(l.to_lrc(), "[01:00.00]a\n[01:01.50]b\n[10:00.00]\n[10:01.00]c\n");
+        assert_eq!(l.to_lrc(), "[re:Segno]\n[01:00.00]a\n[01:01.50]b\n[10:00.00]\n[10:01.00]c\n");
         assert_eq!(parse_lrc(&l.to_lrc()).lines.len(), 4);
     }
 
@@ -954,13 +1069,22 @@ mod tests {
             entry("Shoft Kalam", "Marwan Pablo, Lege-Cy, HatemBas", 209.0, Some("[00:01.00]timed"), None),
             entry("Shoft Kalam", "Someone Else", 210.0, Some("[00:01.00]wrong artist"), None),
         ];
-        assert_eq!(choose(&list, &pairs, 210.0, None), Some(Pick::Synced("[00:01.00]timed".into())));
+        assert_eq!(choose(&list, &pairs, 210.0, None, None), Some(Pick::Synced("[00:01.00]timed".into())));
         // Another cut of the song: timing would drift, so plain lyrics instead.
-        assert_eq!(choose(&list, &pairs, 260.0, None), Some(Pick::Plain("plain".into())));
+        assert_eq!(choose(&list, &pairs, 260.0, None, None), Some(Pick::Plain("plain".into())));
         // A different song with the same name doesn't count.
         let other = vec![entry("Addiction", "Kanye West", 264.0, Some("[00:01.00]no"), Some("no"))];
         let pairs = vec![("addiction".to_string(), "LONOWN".to_string())];
-        assert_eq!(choose(&other, &pairs, 264.0, None), None);
+        assert_eq!(choose(&other, &pairs, 264.0, None, None), None);
+    }
+
+    #[test]
+    fn wrong_lyrics_are_skipped() {
+        let pairs = vec![("Song".to_string(), "Artist".to_string())];
+        let list = vec![entry("Song", "Artist", 200.0, Some("[00:01.00]Wrong words"), None), entry("Song", "Artist", 201.0, Some("[00:01.00]Right words"), None)];
+        let wrong = parse_lrc("[00:05.00]wrong WORDS").words_key();
+        assert_eq!(choose(&list, &pairs, 200.0, None, None), Some(Pick::Synced("[00:01.00]Wrong words".into())));
+        assert_eq!(choose(&list, &pairs, 200.0, None, Some(wrong)), Some(Pick::Synced("[00:01.00]Right words".into())));
     }
 
     #[test]
@@ -971,7 +1095,7 @@ mod tests {
             entry("addiction", "LONOWN", 209.0, Some("[00:10.00]a"), None),
             entry("addiction", "LONOWN", 355.0, Some("[00:10.00]extended"), None),
         ];
-        match choose(&list, &pairs, 251.0, Some(Speed::Slower)) {
+        match choose(&list, &pairs, 251.0, Some(Speed::Slower), None) {
             Some(Pick::Stretched(text, r)) => {
                 assert_eq!(text, "[00:10.00]a");
                 assert!((r - 251.0 / 209.0).abs() < 1e-4);
@@ -981,7 +1105,49 @@ mod tests {
         // Timed lyrics made for the slowed version itself come first.
         let mut with_own = list;
         with_own.push(entry("addiction - Slowed", "LONOWN", 250.0, Some("[00:12.00]own"), None));
-        assert_eq!(choose(&with_own, &pairs, 251.0, Some(Speed::Slower)), Some(Pick::Synced("[00:12.00]own".into())));
+        assert_eq!(choose(&with_own, &pairs, 251.0, Some(Speed::Slower), None), Some(Pick::Synced("[00:12.00]own".into())));
+    }
+
+    #[test]
+    fn track_numbers_from_file_names() {
+        assert_eq!(strip_track_number("01 Coastline"), "Coastline");
+        assert_eq!(strip_track_number("1. Song"), "Song");
+        assert_eq!(strip_track_number("03 - Song"), "Song");
+        assert_eq!(strip_track_number("12_Song"), "Song");
+        assert_eq!(strip_track_number("7 Rings"), "7 Rings");
+        assert_eq!(strip_track_number("22"), "22");
+        assert_eq!(strip_track_number("1979"), "1979");
+        assert_eq!(strip_track_number("99 Problems"), "99 Problems");
+        assert_eq!(bare_name("Mamushi (feat. Yuki Chiba)"), "Mamushi");
+        assert_eq!(bare_name("Song - Radio Edit"), "Song");
+        assert_eq!(bare_name("Song feat. X"), "Song");
+    }
+
+    #[test]
+    fn timed_lyrics_go_next_to_the_song_once() {
+        let dir = std::env::temp_dir().join(format!("segno-beside-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut q = query(1, false);
+        q.song = Some(dir.join("a.mp3"));
+        q.beside = true;
+        keep_beside(&q, &Lyrics::plain("not timed"));
+        assert!(!dir.join("a.lrc").exists());
+        keep_beside(&q, &parse_lrc("[00:01.00]one"));
+        assert_eq!(std::fs::read_to_string(dir.join("a.lrc")).unwrap(), "[re:Segno]\n[00:01.00]one\n");
+        // Never replaces a file that's there.
+        keep_beside(&q, &parse_lrc("[00:02.00]two"));
+        assert_eq!(std::fs::read_to_string(dir.join("a.lrc")).unwrap(), "[re:Segno]\n[00:01.00]one\n");
+        // "Wrong lyrics?" removes Segno's own file, never someone else's.
+        forget(&q);
+        assert!(!dir.join("a.lrc").exists());
+        std::fs::write(dir.join("a.lrc"), "[00:01.00]mine").unwrap();
+        forget(&q);
+        assert!(dir.join("a.lrc").exists());
+        q.beside = false;
+        std::fs::remove_file(dir.join("a.lrc")).unwrap();
+        keep_beside(&q, &parse_lrc("[00:01.00]one"));
+        assert!(!dir.join("a.lrc").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -996,7 +1162,7 @@ mod tests {
     }
 
     fn query(id: u64, force: bool) -> Query {
-        Query { id, song: None, title: "t".into(), artist: "a".into(), from_video: false, duration: 100.0, force }
+        Query { id, song: None, title: "t".into(), artist: "a".into(), from_video: false, duration: 100.0, force, beside: false, avoid: None }
     }
 
     /// Runs the worker loop with a pretend LRCLIB that finds every song on the second ask.
@@ -1058,6 +1224,8 @@ mod tests {
             from_video: false,
             duration: 100.0,
             force: false,
+            beside: true,
+            avoid: None,
         };
         match saved(&q) {
             Some(State::Found(l)) => assert_eq!(l.lines, vec![(1.0, "mine".into())]),

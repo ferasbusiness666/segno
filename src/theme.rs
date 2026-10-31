@@ -5,6 +5,7 @@
 //! primary action, the current song and progress.
 
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 // Colors ---------------------------------------------------------------------------------------
@@ -170,71 +171,136 @@ fn system_fallbacks() -> Vec<(String, std::path::PathBuf, bool)> {
     v
 }
 
-/// East-Asian fonts are large, so they load only when a title actually needs them.
-pub fn add_cjk_fallback(ctx: &egui::Context) {
-    #[cfg(windows)]
-    {
-        let dir = std::env::var_os("WINDIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| "C:\\Windows".into())
-            .join("Fonts");
-        let mut extra = Vec::new();
-        for (n, f) in [("yahei", "msyh.ttc"), ("yugothic", "YuGothM.ttc"), ("malgun", "malgun.ttf")] {
-            if let Ok(b) = std::fs::read(dir.join(f)) {
-                extra.push((n, b));
-            }
-        }
-        if extra.is_empty() {
-            return;
-        }
-        ctx.add_font(egui::epaint::text::FontInsert::new(
-            extra[0].0,
-            FontData::from_owned(extra[0].1.clone()),
-            vec![
-                egui::epaint::text::InsertFontFamily {
-                    family: FontFamily::Proportional,
-                    priority: egui::epaint::text::FontPriority::Lowest,
-                },
-                egui::epaint::text::InsertFontFamily {
-                    family: semibold(),
-                    priority: egui::epaint::text::FontPriority::Lowest,
-                },
-                egui::epaint::text::InsertFontFamily {
-                    family: bold(),
-                    priority: egui::epaint::text::FontPriority::Lowest,
-                },
-            ],
-        ));
-        for (n, b) in extra.into_iter().skip(1) {
-            ctx.add_font(egui::epaint::text::FontInsert::new(
-                n,
-                FontData::from_owned(b),
-                vec![
-                    egui::epaint::text::InsertFontFamily {
-                        family: FontFamily::Proportional,
-                        priority: egui::epaint::text::FontPriority::Lowest,
-                    },
-                    egui::epaint::text::InsertFontFamily {
-                        family: semibold(),
-                        priority: egui::epaint::text::FontPriority::Lowest,
-                    },
-                    egui::epaint::text::InsertFontFamily {
-                        family: bold(),
-                        priority: egui::epaint::text::FontPriority::Lowest,
-                    },
-                ],
-            ));
-        }
-    }
-    #[cfg(not(windows))]
-    let _ = ctx;
+// ---------------------------------------------------------------------------------------------
+// Fonts for other scripts, loaded when text needs them
+
+/// Scripts Inter and the startup fallbacks don't cover. Their fonts are big (a Chinese one is
+/// about 20 MB), so each loads only once some text on screen uses it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Script {
+    Japanese,
+    Chinese,
+    Korean,
+    Thai,
+    Indic,
+    Ethiopic,
+    Myanmar,
+    Khmer,
+    Lao,
 }
 
-pub fn has_cjk(s: &str) -> bool {
-    s.chars().any(|c| {
-        matches!(c as u32,
-            0x3040..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF)
+impl Script {
+    const ALL: [Script; 9] = [
+        Script::Japanese,
+        Script::Chinese,
+        Script::Korean,
+        Script::Thai,
+        Script::Indic,
+        Script::Ethiopic,
+        Script::Myanmar,
+        Script::Khmer,
+        Script::Lao,
+    ];
+
+    fn bit(self) -> u32 {
+        1 << self as u32
+    }
+
+    /// Font files to try, first found wins.
+    fn files(self) -> &'static [&'static str] {
+        #[cfg(windows)]
+        return match self {
+            Script::Japanese => &["YuGothM.ttc", "meiryo.ttc", "msgothic.ttc"],
+            Script::Chinese => &["msyh.ttc", "simsun.ttc"],
+            Script::Korean => &["malgun.ttf", "gulim.ttc"],
+            Script::Thai => &["LeelawUI.ttf", "leelawad.ttf", "tahoma.ttf"],
+            Script::Indic => &["Nirmala.ttf", "mangal.ttf"],
+            Script::Ethiopic => &["ebrima.ttf"],
+            Script::Myanmar => &["mmrtext.ttf"],
+            Script::Khmer => &["KhmerUI.ttf"],
+            Script::Lao => &["LaoUI.ttf"],
+        };
+        #[cfg(not(windows))]
+        return match self {
+            Script::Japanese | Script::Chinese | Script::Korean => &["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"],
+            Script::Thai => &["/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf", "/usr/share/fonts/truetype/tlwg/Loma.ttf"],
+            Script::Indic => &["/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"],
+            _ => &[],
+        };
+    }
+}
+
+/// Which script a character needs a font for, if any. Japanese wins over Chinese for kana; Han
+/// characters on their own ask for Chinese (a Japanese font, once loaded, covers them too).
+fn script_of(c: char) -> Option<Script> {
+    Some(match c as u32 {
+        0x3040..=0x30FF | 0x31F0..=0x31FF | 0xFF66..=0xFF9F => Script::Japanese,
+        0x3000..=0x303F | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFF65 => Script::Chinese,
+        0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7AF => Script::Korean,
+        0x0E00..=0x0E7F => Script::Thai,
+        0x0E80..=0x0EFF => Script::Lao,
+        0x0900..=0x0DFF => Script::Indic,
+        0x1000..=0x109F => Script::Myanmar,
+        0x1200..=0x139F => Script::Ethiopic,
+        0x1780..=0x17FF => Script::Khmer,
+        _ => return None,
     })
+}
+
+/// Scripts some text asked for, and scripts loaded (or being loaded, or with no font).
+static FONTS_WANTED: AtomicU32 = AtomicU32::new(0);
+static FONTS_DONE: AtomicU32 = AtomicU32::new(0);
+
+/// Note the scripts in `text` that still need a font. Cheap: plain ASCII returns at once.
+pub fn need_fonts_for(text: &str) {
+    if text.is_ascii() {
+        return;
+    }
+    let done = FONTS_DONE.load(Ordering::Relaxed);
+    let mut want = 0;
+    for c in text.chars() {
+        if let Some(s) = script_of(c) {
+            want |= s.bit();
+        }
+    }
+    // Han in Japanese text: the Japanese font has it.
+    if want & Script::Japanese.bit() != 0 || done & Script::Japanese.bit() != 0 {
+        want &= !Script::Chinese.bit();
+    }
+    if want & !done != 0 {
+        FONTS_WANTED.fetch_or(want, Ordering::Relaxed);
+    }
+}
+
+/// Load the fonts text asked for, each on its own thread; they show up from the next frame.
+/// Call once per frame.
+pub fn load_wanted_fonts(ctx: &egui::Context) {
+    let new = FONTS_WANTED.load(Ordering::Relaxed) & !FONTS_DONE.load(Ordering::Relaxed);
+    if new == 0 {
+        return;
+    }
+    FONTS_DONE.fetch_or(new, Ordering::Relaxed);
+    for script in Script::ALL.into_iter().filter(|s| new & s.bit() != 0) {
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            #[cfg(windows)]
+            let dir = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into()).join("Fonts");
+            #[cfg(not(windows))]
+            let dir = std::path::PathBuf::new();
+            let Some(bytes) = script.files().iter().find_map(|f| std::fs::read(dir.join(f)).ok()) else { return };
+            let families = [FontFamily::Proportional, semibold(), bold()]
+                .into_iter()
+                .map(|family| egui::epaint::text::InsertFontFamily { family, priority: egui::epaint::text::FontPriority::Lowest })
+                .collect();
+            ctx.add_font(egui::epaint::text::FontInsert::new(&format!("script-{script:?}"), FontData::from_owned(bytes), families));
+            ctx.request_repaint();
+        });
+    }
+}
+
+/// Changes when fonts are added, for anything that keeps laid-out text between frames.
+pub fn fonts_version(ctx: &egui::Context) -> usize {
+    ctx.fonts_mut(|f| f.definitions().font_data.len())
 }
 
 /// egui style: dark, quiet, rounded, with thin floating scrollbars.
@@ -386,6 +452,7 @@ pub fn has_rtl(s: &str) -> bool {
 /// Hebrew) in visual order, so titles read correctly.
 pub fn line_job(text: &str, font: FontId, color: Color32, max_width: f32) -> egui::text::LayoutJob {
     use egui::text::{LayoutJob, TextFormat, TextWrapping};
+    need_fonts_for(text);
     let mut job = LayoutJob::default();
     let fmt = TextFormat {
         font_id: font,

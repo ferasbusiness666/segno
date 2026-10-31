@@ -142,6 +142,8 @@ pub struct Settings {
     pub show_lyrics: bool,
     /// The side panel on Now Playing shows lyrics instead of Up next.
     pub lyrics_panel: bool,
+    /// Keep timed lyrics as .lrc files next to the songs.
+    pub lyrics_beside: bool,
     /// Agreed to only download music they're allowed to (asked before the first download).
     pub download_rights_ok: bool,
 }
@@ -173,6 +175,7 @@ impl Default for Settings {
             spin_record: true,
             show_lyrics: true,
             lyrics_panel: false,
+            lyrics_beside: true,
             download_rights_ok: false,
         }
     }

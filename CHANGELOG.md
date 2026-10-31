@@ -9,6 +9,17 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.16
+
+### New
+- Found lyrics are saved as .lrc files next to your songs, so they work offline and in other players. Turn it off in Settings > Playback.
+- "Wrong lyrics?": point at the lyrics and click it in the corner. Segno forgets them and looks for others.
+
+### Fixed
+- Japanese, Chinese, Korean, Thai, Hindi and other languages showed as boxes. Segno now uses Windows' own fonts for them, loaded only when a song needs them.
+- Lyrics are found more often: the exact search tries the plain song name too ("Song" for "Song (feat. X)") and only the first artist, and track numbers in titles ("01 Song") are ignored.
+- Songs an older version couldn't find lyrics for are looked up again.
+
 ## 1.1.15
 
 ### New
