@@ -124,7 +124,7 @@ Codex's order: 1. the four bugs, 2. cache mix-ups and a storage limit, 3. synced
 
 In this order:
 - ✅ **Fix the four bugs** Codex reproduced (1.1.9)
-- 🟡 **Preview cache**: no mix-ups between songs (1.1.9); still to do: a size limit you can set in Settings
+- 🟡 **Preview cache**: no mix-ups between songs (1.1.9). A size limit in Settings only if it turns out to grow big (it clears after 3 days)
 - ✅ **Synced lyrics** (1.1.12): lines scroll and light up with the song (free from LRCLIB), straight on the background beside the record on Now Playing and full screen, click a line to jump, Arabic reads right to left; your own .lrc file next to a song wins. 1.1.13: Try again, plain lyrics when there are no timed ones, slowed/sped-up versions stretch the original, much better matching for YouTube titles (checked against LRCLIB with real songs). 1.1.16: lyrics in every language (Japanese, Chinese, Korean, Thai, Hindi… with Windows' own fonts, loaded only when needed), "Wrong lyrics?", timed lyrics saved as .lrc next to songs, better exact matching. Next idea: pick from a list of matches
 - ⬜ **Online songs start sooner**: start playing while the song is still coming in, not after
 - ⬜ **Volume levelling**: loud and quiet songs play at the same level
@@ -135,11 +135,12 @@ In this order:
   decode a second or two ahead on its own thread (the callback only copies samples), and ask
   Windows to give the audio thread priority (MMCSS "Pro Audio"). Do it together with crossfade
   and gapless, which change the same part of the player.
-- ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders
+- ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders. **Top of the list, with the sleep timer.**
+- ⬜ **Sleep timer**: stop after 15 / 30 / 60 minutes or at the end of the song, with a gentle fade. **Top of the list, with the equalizer.**
 - ⬜ **Discord status**: "Listening to … on Segno"
-- ⬜ **Wrong match? Pick another**: for imported songs (Spotify links) that found the wrong video
+- ✅ **Wrong song? Pick another** (1.1.18): Spotify songs that play the wrong YouTube video: pick the right one from the results (same length as on Spotify is marked), remembered everywhere. The first guess also skips live, cover, sped-up and other versions unless the song itself is one
 - ⬜ **Tests for playback**, so bugs like these get caught before a release
-- ⬜ **New icon shows after an update**: tell Windows to reload Segno's icon the first time a new version opens
+- ~~New icon shows after an update~~: not needed, Segno launched with the new icon
 
 ## After that: make Segno stand out
 
@@ -169,7 +170,6 @@ In this order:
 
 - ⬜ **Customizable full screen**: choose what shows (the record or just the cover, lyrics, Up next, the controls), the background (blurred cover, the cover's colour, plain dark), where things sit and how big the lyrics are
 
-- ⬜ Sleep timer
 - ⬜ App colour follows the cover of the song playing
 - ✅ Keyboard shortcut list in Settings
 

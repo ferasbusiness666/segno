@@ -227,6 +227,11 @@ impl App {
                 self.actions.push(Action::DownloadStream(id));
                 ui.close();
             }
+            // Spotify songs play a YouTube video Segno found: choose another if it's wrong.
+            if !item.find.is_empty() && menu_item(ui, icons::SEARCH, "Wrong song? Pick another").clicked() {
+                self.actions.push(Action::PickVideo(id));
+                ui.close();
+            }
         } else {
             let loved = self.loved.contains(&id);
             if menu_item(ui, icons::HEART, if loved { "Remove from Loved songs" } else { "Love" }).clicked() {

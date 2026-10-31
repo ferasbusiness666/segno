@@ -44,6 +44,10 @@ pub struct YtItem {
     /// Album name, when the site says (Spotify albums).
     #[serde(default)]
     pub album: String,
+    /// Songs from Spotify links: the YouTube video picked for it ("Wrong song? Pick another").
+    /// Empty: the best search result.
+    #[serde(default)]
+    pub video: String,
 }
 
 impl YtItem {
@@ -61,7 +65,9 @@ impl YtItem {
     }
     /// What yt-dlp is given to fetch the audio.
     pub fn url(&self) -> String {
-        if !self.find.is_empty() {
+        if !self.video.is_empty() {
+            format!("https://www.youtube.com/watch?v={}", self.video)
+        } else if !self.find.is_empty() {
             format!("ytsearch5:{}", self.find)
         } else if !self.url.is_empty() {
             self.url.clone()
@@ -1005,6 +1011,11 @@ impl Resolver {
         run_search(&self.0, url)
     }
 
+    /// YouTube search results for some words.
+    pub fn search(&self, words: &str) -> Result<Vec<YtItem>, String> {
+        run_search(&self.0, words).map(|(items, _)| items)
+    }
+
     /// The public playlists on a YouTube channel's Playlists tab: (channel name, playlists).
     pub fn channel_playlists(&self, url: &str) -> Result<(String, Vec<ChannelPlaylist>), String> {
         let tools = ensure_tools(&self.0)?;
@@ -1523,7 +1534,18 @@ const PREVIEW_ID: &str = "segno_id";
 /// have yt-dlp's own id, which for YouTube is the song's id.
 fn is_entry_for(meta: &Value, item: &YtItem) -> bool {
     let saved = meta.get(PREVIEW_ID).or_else(|| meta.get("id")).and_then(Value::as_str);
-    saved == Some(item.id.as_str())
+    // A Spotify song with a picked video: only that video counts, not an earlier guess.
+    let video_ok = item.video.is_empty() || meta.get("id").and_then(Value::as_str) == Some(item.video.as_str());
+    saved == Some(item.id.as_str()) && video_ok
+}
+
+/// The YouTube video a Spotify song plays: the one picked for it, or the one fetched last.
+pub fn current_video(item: &YtItem) -> Option<String> {
+    if !item.video.is_empty() {
+        return Some(item.video.clone());
+    }
+    let (_, meta) = preview_entry(item)?;
+    meta.get("id").and_then(Value::as_str).map(String::from)
 }
 
 /// A song's preview: its audio file and saved details, only if the entry is complete and
@@ -1693,6 +1715,15 @@ fn run_ytdlp(
 
 const NO_MATCH: &str = "Couldn't find this song on YouTube.";
 
+/// A pattern for video titles that are another version of a song (live, cover, sped up…),
+/// leaving out the kinds the song's own title says it is. None when it is all of them.
+fn other_versions(song_title: &str) -> Option<String> {
+    const KINDS: [&str; 11] = ["live", "cover", "karaoke", "instrumental", "nightcore", "sped up", "slowed", "reverb", "8d", "remix", "acoustic"];
+    let own = song_title.to_lowercase();
+    let skip: Vec<&str> = KINDS.iter().copied().filter(|k| !own.contains(k)).collect();
+    (!skip.is_empty()).then(|| format!("(?i)\\b({})\\b", skip.join("|")))
+}
+
 fn run_ytdlp_once(
     tools: &Tools,
     item: &YtItem,
@@ -1724,14 +1755,19 @@ fn run_ytdlp_once(
     ]);
     cmd.arg(&out_tpl);
     cmd.arg("-o").arg(format!("thumbnail:{}", out_tpl.display()));
-    if !item.find.is_empty() {
-        // A Spotify song found on YouTube: take the first result whose length is close to
-        // the real song's, so a 10-minute live version or a 30-second clip doesn't win.
+    if !item.find.is_empty() && item.video.is_empty() {
+        // A Spotify song found on YouTube: take the first result whose length is close to the
+        // real song's, so a 10-minute live version or a 30-second clip doesn't win, and that
+        // isn't another version (live, cover, sped up…) unless the song itself is one.
         cmd.args(["--max-downloads", "1"]);
         if match_length && item.duration > 0.0 {
             let lo = (item.duration * 0.85 - 5.0).max(0.0) as u32;
             let hi = (item.duration * 1.15 + 5.0) as u32;
-            cmd.arg("--match-filter").arg(format!("duration >= {lo} & duration <= {hi}"));
+            let mut filter = format!("duration >= {lo} & duration <= {hi}");
+            if let Some(re) = other_versions(&item.title) {
+                filter.push_str(&format!(" & title !~= '{re}'"));
+            }
+            cmd.arg("--match-filter").arg(filter);
         }
     }
     cmd.arg(item.url());
@@ -2009,6 +2045,23 @@ fn is_windows_device_name(base: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn other_versions_are_left_out() {
+        let re = super::other_versions("Blinding Lights").unwrap();
+        assert!(re.starts_with("(?i)\\b(live|cover|"));
+        // A song that is a remix keeps remixes in.
+        assert!(!super::other_versions("Levitating (Remix)").unwrap().contains("remix"));
+        let mut item = super::YtItem { id: "spotify:abc".into(), find: "A - B audio".into(), ..Default::default() };
+        assert!(item.url().starts_with("ytsearch5:"));
+        item.video = "dQw4w9WgXcQ".into();
+        assert_eq!(item.url(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        // An earlier guess in the cache doesn't count once a video is picked.
+        let meta = serde_json::json!({ "segno_id": "spotify:abc", "id": "otherVideo1" });
+        assert!(!super::is_entry_for(&meta, &item));
+        let meta = serde_json::json!({ "segno_id": "spotify:abc", "id": "dQw4w9WgXcQ" });
+        assert!(super::is_entry_for(&meta, &item));
+    }
+
     #[test]
     fn channel_playlists_are_read() {
         let v = serde_json::json!({

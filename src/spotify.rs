@@ -185,6 +185,7 @@ fn song(id: &str, title: &str, artist: &str, duration: f32, cover: &str, album: 
         site: "Spotify".into(),
         find: format!("{main} - {title} audio"),
         album: album.to_string(),
+        video: String::new(),
     }
 }
 

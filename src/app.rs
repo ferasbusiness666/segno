@@ -52,6 +52,8 @@ pub enum Action {
     RetryLyrics { avoid: Option<u64> },
     /// Move the lyrics' timing by this many seconds (later when positive).
     NudgeLyrics(f32),
+    /// "Wrong song? Pick another" for a Spotify song playing from YouTube.
+    PickVideo(u64),
     Volume(f32),
     ToggleMute,
     ToggleShuffle,
@@ -249,6 +251,8 @@ pub struct App {
     lyrics_rx: Receiver<(u64, crate::lyrics::State)>,
     pub lyr: crate::nowplaying::LyricsView,
     pub import: crate::import::Import,
+    /// "Wrong song? Pick another", when open.
+    pub picker: Option<crate::stream::Picker>,
     pub imm_queue: bool,
     pub vinyl_angle: f32,
     pub backdrop_angle: f32,
@@ -417,6 +421,7 @@ impl App {
             lyrics_rx,
             lyr: Default::default(),
             import: Default::default(),
+            picker: None,
             imm_queue: false,
             vinyl_angle: 0.0,
             backdrop_angle: 0.0,
@@ -1363,6 +1368,7 @@ impl App {
             Action::Prev => self.player.send(Cmd::Prev),
             Action::Seek(s) => self.player.send(Cmd::Seek(s)),
             Action::NudgeLyrics(by) => self.nudge_lyrics(by),
+            Action::PickVideo(id) => self.open_picker(id),
             Action::RetryLyrics { avoid } => {
                 if let Some(id) = self.current_id() {
                     self.ask_lyrics(id, true, avoid);
@@ -2832,6 +2838,7 @@ impl App {
 
     fn overlays(&mut self, ui: &mut Ui, full: Rect) {
         let ctx = ui.ctx().clone();
+        self.picker_ui(&ctx);
         let now = ctx.input(|i| i.time);
         // Toasts: one at a time, above the player bar.
         let life_of = |t: &Toast| match t.undo {

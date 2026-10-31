@@ -9,6 +9,14 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.18
+
+### New
+- Wrong song? Pick another. Songs from Spotify play a YouTube video Segno finds; if it's the wrong one, open the song's menu (···) and pick the right one from YouTube's results. The one with the same length as on Spotify is marked, and Segno remembers your pick.
+
+### Better
+- Segno's first guess for Spotify songs skips live versions, covers, sped-up and slowed edits, karaoke and remixes, unless the song itself is one.
+
 ## 1.1.17
 
 ### New
