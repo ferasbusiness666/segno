@@ -9,6 +9,18 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.17
+
+### New
+- Lyrics timing: point at the lyrics and use the arrows next to "Timing" to show them earlier or later, half a second a click. Segno remembers it for that song.
+
+### Better
+- LRCLIB, the lyrics site, is often busy. Segno now waits and asks again up to four times per request, keeps trying by itself (sooner at first, then less often), and says when the site is busy instead of blaming your internet.
+- While you're looking at lyrics, the next song's lyrics are fetched ahead, so they're ready when it starts.
+
+### Fixed
+- Pasting a Spotify profile on the import page now says clearly that Spotify doesn't show a profile's playlists to apps, and to paste the playlists' links instead.
+
 ## 1.1.16
 
 ### New

@@ -145,7 +145,7 @@ In this order:
 
 - ⬜ **Phone remote**: scan a QR code, control Segno from your phone, no app needed
 - ⬜ **Playlist sync**: saved playlists update when the original changes
-- ✅ **Import playlists page** (1.1.15): the "+" next to Playlists offers New playlist or Import playlists. Paste one or many links: playlists from any site, a YouTube channel (all its public playlists), a Spotify profile (the public playlists on it), or songs copied from the Spotify app (Ctrl+A, Ctrl+C: Liked Songs and private playlists). Tick what to keep. Steps for each site on the page. Spotify profiles still to test with a real profile.
+- ✅ **Import playlists page** (1.1.15): the "+" next to Playlists offers New playlist or Import playlists. Paste one or many links: playlists from any site, a YouTube channel (all its public playlists), or songs copied from the Spotify app (Ctrl+A, Ctrl+C: Liked Songs and private playlists). Tick what to keep. Steps for each site on the page. Spotify profiles can't work: tested with Feras's profile, the page only fills in its playlists in the browser, so the app explains and asks for playlist links (1.1.17).
 - 🟡 **Sign in with Google**: on hold, not wanted for now. (It would bring every YouTube playlist, private ones too, but needs Google to check the app first.)
 - ⬜ **Spotify sign-in: not possible.** Since 2025–26 Spotify only allows it for companies with 250,000+ monthly users; others are capped at 5 users. The import page covers Spotify without it.
 - ⬜ **Import from more places**: Apple Music and Deezer links (Deezer has a free public API)

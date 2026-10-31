@@ -1,6 +1,5 @@
 //! Import playlists from Spotify, YouTube and other sites, many at once: paste playlist links,
-//! a YouTube channel or a Spotify profile (all their public playlists), or songs copied out of
-//! the Spotify app. Everything found is listed to tick, then saved as playlists that play
+//! a YouTube channel (all its public playlists), or songs copied out of the Spotify app. Everything found is listed to tick, then saved as playlists that play
 //! online until you download them.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -27,7 +26,7 @@ pub enum Source {
     Link(String),
     /// A YouTube channel: its public playlists.
     Channel(String),
-    /// A Spotify profile: its public playlists.
+    /// A Spotify profile: recognised only to explain that its playlists can't be read.
     Profile(String),
     /// Songs copied out of Spotify (Ctrl+A, Ctrl+C copies one link per song).
     Songs(Vec<String>),
@@ -144,7 +143,7 @@ impl Platform {
         match self {
             Platform::Spotify => &[
                 ("One playlist", "Open it, click ··· then Share → Copy link to playlist."),
-                ("All your public playlists", "Click your picture → Profile, then ··· → Share → Copy link to profile. The playlists shown on your profile come in."),
+                ("Several playlists", "Copy each one's link and paste them all here at once, one per line."),
                 ("Liked Songs or a private playlist", "In the Spotify app, open it, click any song, press Ctrl+A then Ctrl+C, and paste here."),
             ],
             Platform::YouTube => &[
@@ -245,25 +244,11 @@ impl Import {
                             Err(e) => problems.push(format!("{}: {e}", short(url))),
                         }
                     }
-                    Source::Profile(url) => {
-                        note("Reading the Spotify profile…".into());
-                        match crate::spotify::profile_playlists(url) {
-                            Ok(ids) => {
-                                for (k, id) in ids.iter().enumerate() {
-                                    if !current() {
-                                        return;
-                                    }
-                                    note(format!("Reading Spotify playlist {} of {}…", k + 1, ids.len()));
-                                    match resolver.link(&format!("https://open.spotify.com/playlist/{id}")) {
-                                        Ok((items, Some(info))) if !items.is_empty() => found.push(Found { info, songs: Some(items), picked: true }),
-                                        Ok(_) => {}
-                                        Err(e) => problems.push(e),
-                                    }
-                                }
-                            }
-                            Err(e) => problems.push(e),
-                        }
-                    }
+                    // Spotify's profile pages only fill in the playlists in the browser, so an
+                    // app never sees them.
+                    Source::Profile(_) => problems.push(
+                        "Spotify doesn't show a profile's playlists to apps. Paste the playlists' own links instead (Share → Copy link to playlist), as many as you like at once.".into(),
+                    ),
                     Source::Songs(ids) => {
                         let (items, missed) = read_spotify_songs(&resolver, ids, |done| note(format!("Reading songs from Spotify: {done} of {}…", ids.len())));
                         if missed > 0 {
@@ -451,7 +436,7 @@ impl App {
             ui.set_width(ui.available_width());
             ui.label(egui::RichText::new("Paste links").font(body_strong()).color(TEXT));
             ui.add_space(2.0);
-            ui.label(egui::RichText::new("One or many: playlists, your YouTube channel, your Spotify profile, or songs copied from Spotify.").font(small()).color(TEXT_2));
+            ui.label(egui::RichText::new("One or many: playlists, your YouTube channel, or songs copied from Spotify.").font(small()).color(TEXT_2));
             ui.add_space(S3);
             let id = Id::new("import-text");
             let focused = ui.memory(|m| m.has_focus(id));

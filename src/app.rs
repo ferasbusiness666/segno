@@ -50,6 +50,8 @@ pub enum Action {
     /// Look the lyrics up again, even if they weren't found last time; `avoid`: the words'
     /// key of wrong lyrics to skip.
     RetryLyrics { avoid: Option<u64> },
+    /// Move the lyrics' timing by this many seconds (later when positive).
+    NudgeLyrics(f32),
     Volume(f32),
     ToggleMute,
     ToggleShuffle,
@@ -239,6 +241,10 @@ pub struct App {
     pub lyrics: crate::lyrics::State,
     pub lyrics_for: Option<u64>,
     lyrics_asked: f64,
+    /// Failed asks in a row for the song playing (each waits longer before the next).
+    lyrics_fails: u32,
+    /// The song whose lyrics were last read ahead.
+    lyrics_ahead: Option<u64>,
     lyrics_tx: std::sync::mpsc::Sender<crate::lyrics::Query>,
     lyrics_rx: Receiver<(u64, crate::lyrics::State)>,
     pub lyr: crate::nowplaying::LyricsView,
@@ -405,6 +411,8 @@ impl App {
             lyrics: crate::lyrics::State::Missing,
             lyrics_for: None,
             lyrics_asked: 0.0,
+            lyrics_fails: 0,
+            lyrics_ahead: None,
             lyrics_tx,
             lyrics_rx,
             lyr: Default::default(),
@@ -698,23 +706,30 @@ impl App {
         let open = if self.immersive { self.imm_queue } else { self.route == Route::NowPlaying && self.np_queue };
         let Some(id) = self.current_id().filter(|_| open && self.lyrics_mode()) else { return };
         let now = self.ctx.input(|i| i.time);
-        // Couldn't reach the site last time: ask again every half a minute while it's open.
-        let retry = matches!(self.lyrics, crate::lyrics::State::Failed) && now - self.lyrics_asked > 30.0;
-        if self.lyrics_for == Some(id) && !retry {
+        // Couldn't get them: ask again while the lyrics are open, waiting longer each time
+        // (LRCLIB is often busy for a little while).
+        let wait = [5.0, 15.0, 30.0, 60.0][self.lyrics_fails.min(3) as usize];
+        let retry = matches!(self.lyrics, crate::lyrics::State::Failed { .. }) && now - self.lyrics_asked > wait;
+        if self.lyrics_for != Some(id) || retry {
+            self.ask_lyrics(id, false, None);
             return;
         }
-        self.ask_lyrics(id, false, None);
+        // This song is done: read the next one's ahead, so it's ready when it starts (and a busy
+        // LRCLIB gets more time).
+        if matches!(self.lyrics, crate::lyrics::State::Found(_) | crate::lyrics::State::Missing) {
+            let next = self.ps.queue.get(self.ps.index + 1).map(|q| q.id);
+            if let Some(next) = next.filter(|n| self.lyrics_ahead != Some(*n)) {
+                self.lyrics_ahead = Some(next);
+                if let Some(q) = self.lyrics_query(next, false, None, true) {
+                    let _ = self.lyrics_tx.send(q);
+                }
+            }
+        }
     }
 
-    /// Send a song to the lyrics worker (`force`: even if it wasn't found last time).
-    fn ask_lyrics(&mut self, id: u64, force: bool, avoid: Option<u64>) {
-        let Some(info) = self.info_for(id) else { return };
-        if self.lyrics_for != Some(id) {
-            self.lyr = Default::default();
-        }
-        self.lyrics_for = Some(id);
-        self.lyrics = crate::lyrics::State::Loading;
-        self.lyrics_asked = self.ctx.input(|i| i.time);
+    /// What the lyrics worker needs to know about a song.
+    fn lyrics_query(&self, id: u64, force: bool, avoid: Option<u64>, ahead: bool) -> Option<crate::lyrics::Query> {
+        let info = self.info_for(id)?;
         // A song playing from a video: its own title and channel say more than the names
         // cleaned from them (Spotify imports already have clean names).
         let (title, artist, from_video) = match &info.preview {
@@ -722,7 +737,7 @@ impl App {
             _ => (info.title, info.artist, false),
         };
         let artist = if artist == crate::library::UNKNOWN_ARTIST { String::new() } else { artist };
-        let _ = self.lyrics_tx.send(crate::lyrics::Query {
+        Some(crate::lyrics::Query {
             id,
             song: self.lib.get(id).map(|t| t.path.clone()),
             title,
@@ -732,7 +747,33 @@ impl App {
             force,
             beside: self.settings.lyrics_beside,
             avoid,
-        });
+            ahead,
+        })
+    }
+
+    /// Send the song playing to the lyrics worker (`force`: even if it wasn't found last time).
+    fn ask_lyrics(&mut self, id: u64, force: bool, avoid: Option<u64>) {
+        let Some(q) = self.lyrics_query(id, force, avoid, false) else { return };
+        if self.lyrics_for != Some(id) {
+            self.lyr = Default::default();
+            self.lyrics_fails = 0;
+        }
+        self.lyrics_for = Some(id);
+        self.lyrics = crate::lyrics::State::Loading;
+        self.lyrics_asked = self.ctx.input(|i| i.time);
+        let _ = self.lyrics_tx.send(q);
+    }
+
+    /// "Earlier" / "Later": move the lyrics of the song playing by `by` seconds, and keep that.
+    fn nudge_lyrics(&mut self, by: f32) {
+        let crate::lyrics::State::Found(l) = &self.lyrics else { return };
+        let Some(id) = self.lyrics_for.filter(|id| Some(*id) == self.current_id() && l.synced) else { return };
+        let moved = l.shifted(by);
+        if let Some(q) = self.lyrics_query(id, false, None, false) {
+            crate::lyrics::keep_timing(&q, &moved);
+        }
+        self.lyrics = crate::lyrics::State::Found(Arc::new(moved));
+        self.lyr.nudged += by;
     }
 
     /// Save a playlist from a site: songs already in the library go in as files, the rest play
@@ -1112,6 +1153,7 @@ impl App {
                 }
             }
             if self.lyrics_for == Some(id) {
+                self.lyrics_fails = if matches!(st, crate::lyrics::State::Failed { .. }) { self.lyrics_fails + 1 } else { 0 };
                 self.lyrics = st;
             }
         }
@@ -1320,6 +1362,7 @@ impl App {
             }
             Action::Prev => self.player.send(Cmd::Prev),
             Action::Seek(s) => self.player.send(Cmd::Seek(s)),
+            Action::NudgeLyrics(by) => self.nudge_lyrics(by),
             Action::RetryLyrics { avoid } => {
                 if let Some(id) = self.current_id() {
                     self.ask_lyrics(id, true, avoid);

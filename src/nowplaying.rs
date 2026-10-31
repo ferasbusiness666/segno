@@ -286,8 +286,12 @@ impl App {
                 }
                 return;
             }
-            (lyrics::State::Failed, true) => {
-                note("Couldn't load lyrics", "Check your internet. Segno tries again by itself too.");
+            (lyrics::State::Failed { busy }, true) => {
+                if *busy {
+                    note("The lyrics site is busy right now", "Segno keeps trying by itself.");
+                } else {
+                    note("Couldn't load lyrics", "Check your internet. Segno tries again by itself too.");
+                }
                 if retry_button(ui, area, salt) {
                     self.actions.push(Action::RetryLyrics { avoid: None });
                 }
@@ -364,16 +368,27 @@ impl App {
         if plain {
             w::text(&p, pos2(area.left() + INSET, area.top() + 12.0), Align2::LEFT_CENTER, "Not timed to the song", small(), TEXT_2, area.width());
         }
-        // "Wrong lyrics?" shows while the pointer is over the lyrics.
+        // Fixes, shown while the pointer is over the lyrics: timing (timed lyrics only) and
+        // "Wrong lyrics?".
         let over = ctx.animate_bool_with_time(Id::new(("lyr-over", salt)), ui.rect_contains_pointer(area), T);
         if over > 0.01 {
-            let label = "Wrong lyrics?";
-            let wr = Rect::from_min_size(pos2(area.right() - INSET - w::text_width(ui, label, small_strong()) - 8.0, area.top()), vec2(w::text_width(ui, label, small_strong()) + 8.0, 24.0));
-            let resp = ui.interact(wr, Id::new(("lyr-wrong", salt)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-            let c = if resp.hovered() { TEXT } else { TEXT_2 };
-            w::text(&p, pos2(wr.right(), wr.center().y), Align2::RIGHT_CENTER, label, small_strong(), with_alpha(c, over), wr.width());
-            if resp.on_hover_text("Forget these lyrics and look for others").clicked() {
+            let y = area.top() + 12.0;
+            let (x, wrong) = small_link(ui, &p, area.right() - INSET, y, None, "Wrong lyrics?", "Forget these lyrics and look for others", over, Id::new(("lyr-wrong", salt)));
+            if wrong {
                 self.actions.push(Action::RetryLyrics { avoid: Some(l.words_key()) });
+            }
+            if !plain {
+                let (x, later) = small_link(ui, &p, x - S5, y, Some(icons::CHEVRON_RIGHT), "", "Lyrics come too soon: show them later", over, Id::new(("lyr-later", salt)));
+                let label = if self.lyr.nudged.abs() < 0.05 { "Timing".to_string() } else { format!("{:+.1} s", self.lyr.nudged) };
+                w::text(&p, pos2(x - 4.0, y), Align2::RIGHT_CENTER, &label, small_strong(), with_alpha(TEXT_2, over), 80.0);
+                let lw = w::text_width(ui, &label, small_strong());
+                let (_, earlier) = small_link(ui, &p, x - 8.0 - lw, y, Some(icons::CHEVRON_LEFT), "", "Lyrics come too late: show them earlier", over, Id::new(("lyr-earlier", salt)));
+                if later {
+                    self.actions.push(Action::NudgeLyrics(0.5));
+                }
+                if earlier {
+                    self.actions.push(Action::NudgeLyrics(-0.5));
+                }
             }
         }
         for (i, line) in lay.lines.iter().enumerate() {
@@ -692,6 +707,23 @@ impl App {
     }
 }
 
+/// A small text or icon button for the lyrics panel, ending at `right` and centred on `y`.
+/// Returns where it starts (to put the next one before it) and whether it was clicked.
+#[allow(clippy::too_many_arguments)]
+fn small_link(ui: &Ui, p: &egui::Painter, right: f32, y: f32, icon: Option<&str>, label: &str, tip: &str, alpha: f32, id: Id) -> (f32, bool) {
+    let wdt = if icon.is_some() { 22.0 } else { w::text_width(ui, label, small_strong()) + 8.0 };
+    let r = Rect::from_min_max(pos2(right - wdt, y - 12.0), pos2(right, y + 12.0));
+    let resp = ui.interact(r, id, Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+    let c = with_alpha(if resp.hovered() { TEXT } else { TEXT_2 }, alpha);
+    match icon {
+        Some(i) => icons::glyph(p, r.center(), i, 15.0, c),
+        None => {
+            w::text(p, pos2(r.right(), y), Align2::RIGHT_CENTER, label, small_strong(), c, wdt);
+        }
+    }
+    (r.left(), resp.on_hover_text(tip).clicked())
+}
+
 /// "Try again" under the lyrics panel's message.
 fn retry_button(ui: &mut Ui, area: Rect, salt: &str) -> bool {
     let r = Rect::from_center_size(area.center() + vec2(0.0, 64.0), vec2(area.width(), 36.0));
@@ -713,6 +745,8 @@ pub(crate) struct LyricsView {
     line: Option<usize>,
     prev: Option<usize>,
     changed: f64,
+    /// How far "Earlier" / "Later" moved this song's lyrics, to show it.
+    pub(crate) nudged: f32,
 }
 
 struct LyricsLayout {

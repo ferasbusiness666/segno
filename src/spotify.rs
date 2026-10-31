@@ -41,21 +41,6 @@ pub fn resolve(url: &str) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String>
     parse_embed(&page, &kind, &id, &url)
 }
 
-/// The public playlists on a Spotify profile page (their ids), as far as the page shows them.
-pub fn profile_playlists(url: &str) -> Result<Vec<String>, String> {
-    let page = crate::net::get_page(url).map_err(|_| unreachable())?;
-    let ids = playlist_ids_in(&page);
-    if ids.is_empty() {
-        return Err("Spotify didn't show any public playlists on this profile. Paste the playlists' own links instead (Share → Copy link to playlist).".into());
-    }
-    Ok(ids)
-}
-
-/// Every playlist id a page links to, in order, once.
-fn playlist_ids_in(page: &str) -> Vec<String> {
-    ids_in(page, "playlist")
-}
-
 /// The song ids in text copied out of Spotify (Ctrl+A, Ctrl+C on a playlist copies one link per
 /// song), in order, once each.
 pub fn track_ids_in(text: &str) -> Vec<String> {
@@ -253,7 +238,7 @@ mod tests {
         let copied = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC\r\nhttps://open.spotify.com/intl-de/track/7qiZfU4dY1lWllzX7mPBI3?si=abc\nspotify:track:4uLU6hMCjMI75M1A2tKUQC\nspotify:track:0VjIjW4GlUZAMYd2vXMi3b";
         assert_eq!(track_ids_in(copied), vec!["4uLU6hMCjMI75M1A2tKUQC", "7qiZfU4dY1lWllzX7mPBI3", "0VjIjW4GlUZAMYd2vXMi3b"]);
         let page = r#"<a href="/playlist/37i9dQZF1DXcBWIGoYBM5M">Hits</a> "uri":"spotify:playlist:37i9dQZF1DX0XUsuxWHRQd" /playlist/short /playlist/37i9dQZF1DXcBWIGoYBM5M"#;
-        assert_eq!(playlist_ids_in(page), vec!["37i9dQZF1DXcBWIGoYBM5M", "37i9dQZF1DX0XUsuxWHRQd"]);
+        assert_eq!(ids_in(page, "playlist"), vec!["37i9dQZF1DXcBWIGoYBM5M", "37i9dQZF1DX0XUsuxWHRQd"]);
         assert!(track_ids_in("no links here").is_empty());
     }
 

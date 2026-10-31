@@ -82,6 +82,11 @@ impl Lyrics {
         format!("{SEGNO_TAG}\n{lines}")
     }
 
+    /// The same lyrics `by` seconds later (earlier when negative). Lines never go before 0.
+    pub fn shifted(&self, by: f32) -> Lyrics {
+        Lyrics { lines: self.lines.iter().map(|(t, w)| ((t + by).max(0.0), w.clone())).collect(), synced: self.synced }
+    }
+
     /// Tells lyrics apart by their words alone (timed or not), for "Wrong lyrics?".
     pub fn words_key(&self) -> u64 {
         let words: Vec<String> = self.lines.iter().filter(|(_, w)| !w.is_empty()).map(|(_, w)| w.to_lowercase()).collect();
@@ -96,8 +101,9 @@ pub enum State {
     Found(Arc<Lyrics>),
     /// No lyrics for this song.
     Missing,
-    /// Couldn't ask (no internet, the site is busy). Not remembered, so it's asked again.
-    Failed,
+    /// Couldn't ask. `busy`: LRCLIB said so (it often does); otherwise no connection.
+    /// Not remembered, so it's asked again.
+    Failed { busy: bool },
 }
 
 /// A song to find lyrics for.
@@ -117,6 +123,9 @@ pub struct Query {
     pub beside: bool,
     /// "Wrong lyrics?": forget what was found (its words' key) and look for something else.
     pub avoid: Option<u64>,
+    /// Read ahead for a song coming up: only when the worker has nothing else to do, nothing
+    /// is sent back, and a song not found isn't remembered as missing.
+    pub ahead: bool,
 }
 
 /// Start the lyrics worker. Songs are looked up one at a time and only the newest waiting one
@@ -148,7 +157,7 @@ fn lookup(q: &Query, last_try: bool) -> Step {
     if let Some(state) = saved(q) {
         return Step::Done(state);
     }
-    let last_try = last_try || q.force;
+    let last_try = (last_try || q.force) && !q.ahead;
     match from_site(q, last_try) {
         State::Missing if !last_try => Step::NotYet,
         state => Step::Done(state),
@@ -157,28 +166,51 @@ fn lookup(q: &Query, last_try: bool) -> Step {
 
 /// The worker's loop. A song LRCLIB didn't have is asked about once more `follow_up` later
 /// (LRCLIB goes looking for it in the background), and only then remembered as missing.
-/// Meanwhile the panel keeps showing "Looking…". A newer song drops the follow-up.
+/// Meanwhile the panel keeps showing "Looking…". A newer song drops the follow-up. Songs to read
+/// ahead wait until there's nothing else to do; only the newest one is kept.
 fn run(rx: std::sync::mpsc::Receiver<Query>, reply: impl Fn(u64, State), look: impl Fn(&Query, bool) -> Step, follow_up: Duration) {
     let mut again: Option<(Query, Instant)> = None;
+    let mut ahead: Option<Query> = None;
     loop {
-        let (mut q, mut last_try) = match again.take() {
-            Some((q, at)) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
-                Ok(newer) => (newer, false),
-                Err(RecvTimeoutError::Timeout) => (q, true),
+        // Wait for something to do: not at all when there's a song to read ahead.
+        let first = if ahead.is_some() {
+            match rx.try_recv() {
+                Ok(q) => Some(q),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+            }
+        } else if let Some((_, at)) = &again {
+            match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                Ok(q) => Some(q),
+                Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => return,
-            },
-            None => match rx.recv() {
-                Ok(q) => (q, false),
+            }
+        } else {
+            match rx.recv() {
+                Ok(q) => Some(q),
                 Err(_) => return,
-            },
+            }
         };
-        while let Ok(newer) = rx.try_recv() {
-            q = newer;
-            last_try = false;
+        let mut now: Option<Query> = None;
+        for q in first.into_iter().chain(std::iter::from_fn(|| rx.try_recv().ok())) {
+            if q.ahead {
+                ahead = Some(q);
+            } else {
+                now = Some(q);
+            }
         }
-        match look(&q, last_try) {
-            Step::Done(state) => reply(q.id, state),
-            Step::NotYet => again = Some((q, Instant::now() + follow_up)),
+        if let Some(q) = now {
+            again = None;
+            match look(&q, false) {
+                Step::Done(state) => reply(q.id, state),
+                Step::NotYet => again = Some((q, Instant::now() + follow_up)),
+            }
+        } else if let Some((q, _)) = again.take_if(|(_, at)| *at <= Instant::now()) {
+            if let Step::Done(state) = look(&q, true) {
+                reply(q.id, state);
+            }
+        } else if let Some(q) = ahead.take() {
+            let _ = look(&q, false);
         }
     }
 }
@@ -589,20 +621,15 @@ enum Fail {
     Offline(String),
 }
 
-impl Fail {
-    fn text(self) -> String {
-        match self {
-            Fail::Busy => "the site is busy".into(),
-            Fail::Offline(e) => e,
-        }
-    }
-}
 
-/// One request. A busy site or a dropped connection gets one more try after a short wait
-/// (what the site asks for, plus a little randomness so clients don't all come back at once).
+/// One request. LRCLIB is often busy (503): that gets up to three more tries, waiting what
+/// it asks for and longer each time, plus a little randomness so clients don't all come back
+/// at once. A dropped connection gets one more try.
 fn ask(url: &str) -> Result<Option<String>, Fail> {
-    let mut tried = false;
+    const BUSY_TRIES: u32 = 4;
+    let mut tries = 0u32;
     loop {
+        tries += 1;
         let wait = match net::get_api(url) {
             Ok(net::Answer::Text(t)) => return Ok(Some(t)),
             Ok(net::Answer::NotFound) => return Ok(None),
@@ -611,12 +638,11 @@ fn ask(url: &str) -> Result<Option<String>, Fail> {
                 eprintln!("lyrics: {status} from {url}");
                 return Ok(None);
             }
-            Ok(net::Answer::Busy(d)) if !tried => d,
+            Ok(net::Answer::Busy(d)) if tries < BUSY_TRIES => d.max(Duration::from_secs(1 << (tries - 1))),
             Ok(net::Answer::Busy(_)) => return Err(Fail::Busy),
-            Err(_) if !tried => Duration::from_secs(1),
+            Err(_) if tries < 2 => Duration::from_secs(1),
             Err(e) => return Err(Fail::Offline(e)),
         };
-        tried = true;
         let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
         std::thread::sleep(wait.mul_f32(1.0 + (nanos % 300) as f32 / 1000.0));
     }
@@ -711,7 +737,7 @@ fn choose(entries: &[Entry], pairs: &[(String, String)], dur: f32, speed: Option
 
 /// Ask LRCLIB, most likely names first, and stop at the first timed match. A failed request
 /// only counts as an error if nothing was found at all.
-fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, String> {
+fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, Fail> {
     let pairs = name_pairs(&q.title, &q.artist, q.from_video);
     let Some((song, artist)) = pairs.first().cloned() else { return Ok(None) };
     let dur = q.duration;
@@ -762,7 +788,11 @@ fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, String> {
     // Plain lyrics from an exact ask, if timed ones never turn up.
     let mut exact_plain: Option<String> = None;
     let mut error = None;
-    for (url, list) in urls.into_iter().take(MAX_REQUESTS) {
+    for (k, (url, list)) in urls.into_iter().take(MAX_REQUESTS).enumerate() {
+        // LRCLIB asks for a short pause between requests.
+        if k > 0 {
+            std::thread::sleep(Duration::from_millis(250));
+        }
         match ask(&url) {
             Ok(Some(body)) if list => entries.extend(serde_json::from_str::<Vec<Entry>>(&body).unwrap_or_default()),
             Ok(Some(body)) => {
@@ -777,8 +807,8 @@ fn from_lrclib(q: &Query) -> Result<Option<Lyrics>, String> {
             }
             Ok(None) => {}
             Err(f) => {
-                // Still busy or offline after a second try: stop for now.
-                error = Some(f.text());
+                // Still busy or offline after several tries: stop for now.
+                error = Some(f);
                 break;
             }
         }
@@ -869,6 +899,21 @@ fn saved(q: &Query) -> Option<State> {
     (!q.force && missed).then_some(State::Missing)
 }
 
+/// Keep lyrics whose timing was moved ("Earlier" / "Later"): Segno's own copy, and the `.lrc`
+/// beside the song unless it's someone else's file.
+pub fn keep_timing(q: &Query, l: &Lyrics) {
+    if !l.synced {
+        return;
+    }
+    let _ = std::fs::write(files(q).timed, l.to_lrc());
+    if let Some(lrc) = q.song.as_deref().filter(|_| q.beside).map(|s| s.with_extension("lrc")) {
+        let ours = std::fs::read_to_string(&lrc).map_or(true, |t| t.starts_with(SEGNO_TAG));
+        if ours {
+            let _ = std::fs::write(lrc, l.to_lrc());
+        }
+    }
+}
+
 /// Drop what's saved for a song: Segno's own copies, and a `.lrc` beside the song only if
 /// Segno wrote it.
 fn forget(q: &Query) {
@@ -914,9 +959,10 @@ fn from_site(q: &Query, last_try: bool) -> State {
             }
             State::Missing
         }
-        Err(e) => {
+        Err(Fail::Busy) => State::Failed { busy: true },
+        Err(Fail::Offline(e)) => {
             eprintln!("lyrics: {e}");
-            State::Failed
+            State::Failed { busy: false }
         }
     }
 }
@@ -1162,7 +1208,7 @@ mod tests {
     }
 
     fn query(id: u64, force: bool) -> Query {
-        Query { id, song: None, title: "t".into(), artist: "a".into(), from_video: false, duration: 100.0, force, beside: false, avoid: None }
+        Query { id, song: None, title: "t".into(), artist: "a".into(), from_video: false, duration: 100.0, force, beside: false, avoid: None, ahead: false }
     }
 
     /// Runs the worker loop with a pretend LRCLIB that finds every song on the second ask.
@@ -1212,6 +1258,30 @@ mod tests {
     }
 
     #[test]
+    fn reads_ahead_quietly() {
+        let (tx, out, asked) = worker_with_fake_site();
+        let mut ahead = query(7, false);
+        ahead.ahead = true;
+        tx.send(ahead).unwrap();
+        // Looked up once: no answer sent back, no asking again later.
+        assert!(out.recv_timeout(Duration::from_millis(200)).is_err());
+        assert_eq!(*asked.lock().unwrap(), vec![(7, false)]);
+        // The song playing still gets its answer.
+        tx.send(query(1, true)).unwrap();
+        assert_eq!(out.recv_timeout(Duration::from_secs(2)).unwrap(), (1, "Missi".into()));
+    }
+
+    #[test]
+    fn timing_moves_and_stays_in_order() {
+        let l = parse_lrc("[00:00.30]a\n[00:01.00]b\n[00:05.00]c");
+        let later = l.shifted(0.5);
+        assert_eq!(later.lines.iter().map(|x| x.0).collect::<Vec<_>>(), vec![0.8, 1.5, 5.5]);
+        let earlier = l.shifted(-0.5);
+        assert_eq!(earlier.lines.iter().map(|x| x.0).collect::<Vec<_>>(), vec![0.0, 0.5, 4.5]);
+        assert!(earlier.synced);
+    }
+
+    #[test]
     fn sidecar_beats_everything() {
         let dir = std::env::temp_dir().join(format!("segno-lrc-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1226,6 +1296,7 @@ mod tests {
             force: false,
             beside: true,
             avoid: None,
+            ahead: false,
         };
         match saved(&q) {
             Some(State::Found(l)) => assert_eq!(l.lines, vec![(1.0, "mine".into())]),
