@@ -153,6 +153,13 @@ In this order:
 - ⬜ **Last.fm scrobbling**
 - ⬜ **Listening stats** and a shareable "Segno Wrapped" image
 
+## Later: lyrics timing (kept as it is for now)
+
+- ⬜ **Better lyrics sync.** The Earlier/Later arrows (1.1.17) help but aren't enough. Seen by Feras:
+  - off at the start (different intro): fix by comparing with the plain audio version's fingerprint and sliding to line up
+  - off more and more as the song plays: a version at a slightly different speed, or Segno's own clock drifting; check the player's position first with a song whose lyrics are known to be right
+  - completely off: probably lyrics from a different version or a wrong match ("Wrong lyrics?" helps)
+
 ## Small but loved
 
 - ⬜ **Customizable full screen**: choose what shows (the record or just the cover, lyrics, Up next, the controls), the background (blurred cover, the cover's colour, plain dark), where things sit and how big the lyrics are
