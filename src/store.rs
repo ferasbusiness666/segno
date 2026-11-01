@@ -146,6 +146,10 @@ pub struct Settings {
     pub lyrics_beside: bool,
     /// Agreed to only download music they're allowed to (asked before the first download).
     pub download_rights_ok: bool,
+    /// Show what's playing on Discord ("Listening to Segno"), while the Discord app is open.
+    pub discord_status: bool,
+    /// Told once that Discord friends can see what's playing.
+    pub discord_told: bool,
 }
 
 impl Default for Settings {
@@ -177,6 +181,8 @@ impl Default for Settings {
             lyrics_panel: false,
             lyrics_beside: true,
             download_rights_ok: false,
+            discord_status: true,
+            discord_told: false,
         }
     }
 }

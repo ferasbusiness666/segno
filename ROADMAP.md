@@ -136,8 +136,8 @@ In this order:
   Windows to give the audio thread priority (MMCSS "Pro Audio"). Do it together with crossfade
   and gapless, which change the same part of the player.
 - ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders. **Top of the list, with the sleep timer.**
-- ⬜ **Sleep timer**: stop after 15 / 30 / 60 minutes or at the end of the song, with a gentle fade. **Top of the list, with the equalizer.**
-- ⬜ **Discord status**: "Listening to … on Segno"
+- ✅ **Sleep timer** (1.1.20): a moon in the player bar opens a small menu: 15 / 30 / 45 min, 1 hour or end of song. The last 30 s fade out, then it pauses and the volume goes back for next time. +10 min, turn off, and touching anything during the fade cancels it. Runs in the audio engine, so it works with the window in the tray
+- ✅ **Discord status** (1.1.20): "Listening to Segno" with the song, artist, cover, a time bar and a "Get Segno" button, through the Discord app on the same PC (looks for it every 20 s). Cleared on pause. On by default with a one-time note; off in Settings → Playback
 - ✅ **Wrong song? Pick another** (1.1.18): Spotify songs that play the wrong YouTube video: pick the right one from the results (same length as on Spotify is marked), remembered everywhere. The first guess also skips live, cover, sped-up and other versions unless the song itself is one
 - ⬜ **Tests for playback**, so bugs like these get caught before a release
 - ~~New icon shows after an update~~: not needed, Segno launched with the new icon

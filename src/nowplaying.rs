@@ -269,6 +269,9 @@ impl App {
         /// Light a line up a moment early, the way people read ahead when they sing along.
         const LEAD: f32 = 0.2;
         const INSET: f32 = 4.0;
+        /// A strip along the top for the fixes (timing, "Wrong lyrics?"); the lines stay below
+        /// it, so there's never a line in the way of pressing them.
+        const BAR: f32 = 30.0;
         let p = ui.painter().clone();
         let ctx = ui.ctx().clone();
         let note = |main: &str, sub: &str| {
@@ -303,6 +306,7 @@ impl App {
         };
         // Plain lyrics aren't timed: they sit still, start at the top and scroll by hand.
         let plain = !l.synced;
+        let body = Rect::from_min_max(pos2(area.left(), area.top() + BAR), area.max);
         let id = self.lyrics_for.unwrap_or(0);
         let now = ctx.input(|i| i.time);
         let pos = self.seek_preview.unwrap_or(self.pos);
@@ -338,7 +342,7 @@ impl App {
         if ui.rect_contains_pointer(area) {
             let d = ctx.input(|i| i.smooth_scroll_delta.y);
             if d != 0.0 {
-                let (lo, hi) = if plain { (0.0, (lay.height - area.height() * 0.6).max(0.0)) } else { (-center, lay.height - center) };
+                let (lo, hi) = if plain { (0.0, (lay.height - body.height() * 0.6).max(0.0)) } else { (-center, lay.height - center) };
                 self.lyr.off = (self.lyr.off - d).clamp(lo, hi);
                 self.lyr.touched = now;
             }
@@ -362,17 +366,17 @@ impl App {
         };
         self.lyr.shown = Some(shown);
 
-        let anchor = if plain { area.top() + 44.0 } else { area.top() + area.height() * 0.42 };
-        let edge_fade = (area.height() * 0.18).clamp(40.0, 160.0);
-        let clip = p.with_clip_rect(area.intersect(p.clip_rect()));
+        let anchor = if plain { body.top() + 14.0 } else { body.top() + body.height() * 0.42 };
+        let edge_fade = (body.height() * 0.18).clamp(40.0, 160.0);
+        let clip = p.with_clip_rect(body.intersect(p.clip_rect()));
+        let y = area.top() + BAR / 2.0;
         if plain {
-            w::text(&p, pos2(area.left() + INSET, area.top() + 12.0), Align2::LEFT_CENTER, "Not timed to the song", small(), TEXT_2, area.width());
+            w::text(&p, pos2(area.left() + INSET, y), Align2::LEFT_CENTER, "Not timed to the song", small(), TEXT_2, area.width());
         }
         // Fixes, shown while the pointer is over the lyrics: timing (timed lyrics only) and
         // "Wrong lyrics?".
         let over = ctx.animate_bool_with_time(Id::new(("lyr-over", salt)), ui.rect_contains_pointer(area), T);
         if over > 0.01 {
-            let y = area.top() + 12.0;
             let (x, wrong) = small_link(ui, &p, area.right() - INSET, y, None, "Wrong lyrics?", "Forget these lyrics and look for others", over, Id::new(("lyr-wrong", salt)));
             if wrong {
                 self.actions.push(Action::RetryLyrics { avoid: Some(l.words_key()) });
@@ -394,7 +398,7 @@ impl App {
         for (i, line) in lay.lines.iter().enumerate() {
             let h = line.rows.len() as f32 * lay.row_h;
             let top = anchor + line.top - shown;
-            if top + h <= area.top() {
+            if top + h <= body.top() {
                 continue;
             }
             if top >= area.bottom() {
@@ -411,14 +415,14 @@ impl App {
             let mid = top + h / 2.0;
             // Lines fade out toward the top and bottom instead of being cut off (plain lyrics
             // only fade at the top once scrolled).
-            let from_top = if plain && shown < 1.0 { edge_fade } else { mid - area.top() };
+            let from_top = if plain && shown < 1.0 { edge_fade } else { mid - body.top() };
             let edge = (from_top / edge_fade).min((area.bottom() - mid) / edge_fade).clamp(0.0, 1.0);
             let edge = edge * edge * (3.0 - 2.0 * edge);
             let a = if plain {
                 0.85
             } else {
                 // Timed lines: click one to jump there.
-                let hit = Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), h)).intersect(area);
+                let hit = Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), h)).intersect(body);
                 let resp = ui.interact(hit, Id::new(("lyr-line", salt, i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
                 if resp.clicked() {
                     self.actions.push(Action::Seek(l.lines[i].0));

@@ -9,6 +9,15 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.20
+
+### New
+- Sleep timer: press the moon next to the queue button and pick 15, 30 or 45 minutes, an hour, or the end of the song. The music fades out gently, then stops.
+- Discord status: while the Discord app is open, your friends see what you're playing, with the cover and a time bar. Turn it off in Settings, under Playback.
+
+### Better
+- The lyrics' Timing arrows and "Wrong lyrics?" have their own row above the lyrics, so a line is never in the way of pressing them.
+
 ## 1.1.19
 
 ### Better

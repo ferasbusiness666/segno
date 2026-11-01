@@ -42,6 +42,8 @@ pub const X: &str = "\u{E1B2}";
 pub const INFO: &str = "\u{E0F9}";
 /// Not in the icon font: drawn as three lines of text.
 pub const LYRICS: &str = "lyrics";
+/// Not in the icon font: a crescent moon (the sleep timer), drawn like Lucide's.
+pub const MOON: &str = "moon";
 
 /// Paint a line icon centered at `c`, `size` points tall.
 pub fn glyph(p: &Painter, c: Pos2, icon: &str, size: f32, color: Color32) {
@@ -53,7 +55,25 @@ pub fn glyph(p: &Painter, c: Pos2, icon: &str, size: f32, color: Color32) {
         }
         return;
     }
+    if icon == MOON {
+        moon(p, c, size, color);
+        return;
+    }
     p.text(c, Align2::CENTER_CENTER, icon, FontId::new(size, crate::theme::icon_family()), color);
+}
+
+/// Lucide's moon on its 24-unit grid: a circle of radius 9 with a bite taken out of its top
+/// right by a circle that reaches its middle.
+fn moon(p: &Painter, c: Pos2, size: f32, color: Color32) {
+    let k = size / 24.0;
+    let at = |cx: f32, cy: f32, r: f32, deg: f32| {
+        let a = deg.to_radians();
+        c + vec2((cx - 12.0 + r * a.cos()) * k, (cy - 12.0 + r * a.sin()) * k)
+    };
+    let bite = 4.5 * std::f32::consts::SQRT_2;
+    let mut pts: Vec<Pos2> = (0..=27).map(|i| at(12.0, 12.0, 9.0, i as f32 * 10.0)).collect();
+    pts.extend((1..18).map(|i| at(16.5, 7.5, bite, 225.0 - i as f32 * 10.0)));
+    p.add(PathShape::closed_line(pts, Stroke::new(2.0 * k, color)));
 }
 
 /// Solid play triangle with softly rounded corners, optically centered.

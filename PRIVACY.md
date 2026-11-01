@@ -20,4 +20,8 @@ Segno connects to the internet only to:
 
 Those sites see the requests Segno makes for you, the same as when you visit them in a browser.
 
+If the Discord app is open on your computer, Segno shows the song you're playing in your Discord
+status (song, artist, album, a link to the cover and the time). It goes only to the Discord app on
+your computer, which shows it to your friends. Turn it off in Settings, under Playback.
+
 Questions: feroomon10400@gmail.com, or open an issue at https://github.com/ferasbusiness666/segno/issues

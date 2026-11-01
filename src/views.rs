@@ -2135,6 +2135,7 @@ impl App {
         let mut tray = self.settings.close_to_tray;
         let mut lyr = self.settings.show_lyrics;
         let mut beside = self.settings.lyrics_beside;
+        let mut discord = self.settings.discord_status;
         self.settings_card(ui, "", "", |app, ui| {
             if toggle_row(ui, "Keep playing when the queue ends", "Carries on with your library, so the music doesn't stop.", &mut auto) {
                 app.actions.push(Action::SetAutoplay(auto));
@@ -2159,6 +2160,11 @@ impl App {
                     app.settings.lyrics_beside = beside;
                     app.settings.save();
                 }
+            }
+            settings_sep(ui);
+            if toggle_row(ui, "Show what I'm listening to on Discord", "While the Discord app is open on this PC, your friends see the song. Nothing is sent anywhere else.", &mut discord) {
+                app.settings.discord_status = discord;
+                app.settings.save();
             }
         });
     }

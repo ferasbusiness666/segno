@@ -126,6 +126,47 @@ pub enum Cmd {
     Fetched { id: u64, path: PathBuf },
     /// A streamed song couldn't be fetched: if it's the one waiting, move on.
     FetchFailed { id: u64 },
+    /// Set or turn off the sleep timer.
+    SetSleep(Sleep),
+}
+
+/// The sleep timer: the music fades out over its last 30 s and pauses at a set time, or it
+/// stops when the song that's playing ends.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Sleep {
+    #[default]
+    Off,
+    At(Instant),
+    EndOfSong,
+}
+
+/// How long the sleep timer takes to fade the music out.
+pub const SLEEP_FADE: f32 = 30.0;
+/// How often the volume steps down during that fade (it glides between steps).
+const SLEEP_TICK: Duration = Duration::from_millis(200);
+
+/// How much of the volume the sleep timer leaves: all of it until the last 30 s, then less
+/// and less (squared, so it sounds even) down to nothing.
+fn sleep_share(sleep: Sleep, now: Instant) -> f32 {
+    match sleep {
+        Sleep::At(t) => {
+            let f = (t.saturating_duration_since(now).as_secs_f32() / SLEEP_FADE).min(1.0);
+            f * f
+        }
+        _ => 1.0,
+    }
+}
+
+/// The sleep timer is in its last 30 s, fading the music out.
+fn sleep_fading(sleep: Sleep, now: Instant) -> bool {
+    matches!(sleep, Sleep::At(t) if t.saturating_duration_since(now).as_secs_f32() < SLEEP_FADE)
+}
+
+/// When the sleep timer next needs the engine: when its fade starts, then often during it.
+fn sleep_wake(sleep: Sleep, now: Instant) -> Option<Instant> {
+    let Sleep::At(t) = sleep else { return None };
+    let fade_from = t.checked_sub(Duration::from_secs_f32(SLEEP_FADE)).unwrap_or(now);
+    Some(if now < fade_from { fade_from } else { (now + SLEEP_TICK).min(t) })
 }
 
 #[derive(Clone, Default)]
@@ -148,6 +189,7 @@ pub struct State {
     pub autoplay: bool,
     /// The current song plays from its site and is still being fetched.
     pub waiting: bool,
+    pub sleep: Sleep,
 }
 
 impl State {
@@ -370,10 +412,54 @@ struct Engine {
 }
 
 impl Engine {
-    /// The volume the slider asks for (0 when muted).
+    /// The volume the slider asks for (0 when muted), lowered while the sleep timer fades out.
     fn want_gain(&self) -> f32 {
         let s = self.state.lk();
-        gain(s.volume, s.muted)
+        gain(s.volume, s.muted) * sleep_share(s.sleep, Instant::now())
+    }
+
+    /// Someone pressed something while the sleep timer was fading the music out: they're
+    /// awake, so the timer stops (the command itself brings the volume back).
+    fn awake(&self, c: &Cmd) {
+        let pressed = matches!(
+            c,
+            Cmd::Toggle
+                | Cmd::Play
+                | Cmd::Pause
+                | Cmd::Next
+                | Cmd::Prev
+                | Cmd::Seek(_)
+                | Cmd::SetVolume(_)
+                | Cmd::SetMuted(_)
+                | Cmd::JumpTo(_)
+                | Cmd::PlayList { .. }
+        );
+        let mut s = self.state.lk();
+        if pressed && sleep_fading(s.sleep, Instant::now()) {
+            s.sleep = Sleep::Off;
+        }
+    }
+
+    /// The sleep timer's part of the loop: step the volume down during its fade, and pause
+    /// when it's up. Returns true when it just paused the music.
+    fn sleep_tick(&mut self) -> bool {
+        let now = Instant::now();
+        let (sleep, playing) = {
+            let s = self.state.lk();
+            (s.sleep, s.playing)
+        };
+        let Sleep::At(t) = sleep else { return false };
+        if now >= t {
+            self.state.lk().sleep = Sleep::Off;
+            if playing {
+                self.handle(Cmd::Pause);
+            }
+            return true;
+        }
+        if playing && sleep_fading(sleep, now) {
+            self.fade_to(self.want_gain(), SLEEP_TICK.as_secs_f32() * 1.25);
+        }
+        false
     }
 
     /// Glide the loaded song's volume (doesn't wait).
@@ -424,7 +510,8 @@ impl Engine {
 
     fn run(&mut self, rx: Receiver<Cmd>) {
         loop {
-            let cmd = match self.teardown_at {
+            let sleep = sleep_wake(self.state.lk().sleep, Instant::now());
+            let cmd = match [self.teardown_at, sleep].into_iter().flatten().min() {
                 Some(at) => {
                     let wait = at.saturating_duration_since(Instant::now());
                     match rx.recv_timeout(wait) {
@@ -438,8 +525,10 @@ impl Engine {
                     Err(_) => return,
                 },
             };
+            let mut changed = true;
             match cmd {
                 Some(c) => {
+                    self.awake(&c);
                     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle(c)));
                     if r.is_err() {
                         // Something went badly wrong decoding; drop the output and carry on.
@@ -454,14 +543,23 @@ impl Engine {
                         }
                     }
                 }
-                None => {
-                    // Paused long enough: release the audio device.
-                    self.teardown_at = None;
-                    self.close_output();
-                }
+                None => match self.teardown_at {
+                    Some(at) if Instant::now() >= at => {
+                        // Paused long enough: release the audio device.
+                        self.teardown_at = None;
+                        self.close_output();
+                    }
+                    // Only the sleep timer's fade stepping down: nothing for the window.
+                    _ => changed = false,
+                },
             }
-            self.state.lk().version += 1;
-            (self.notify)();
+            if self.sleep_tick() {
+                changed = true;
+            }
+            if changed {
+                self.state.lk().version += 1;
+                (self.notify)();
+            }
         }
     }
 
@@ -1020,7 +1118,20 @@ impl Engine {
             }
             Cmd::TrackEnded(gen) => {
                 if gen == self.gen {
-                    self.advance(true);
+                    let stop = self.state.lk().sleep == Sleep::EndOfSong;
+                    if stop {
+                        self.state.lk().sleep = Sleep::Off;
+                        self.stop_after_song();
+                    } else {
+                        self.advance(true);
+                    }
+                }
+            }
+            Cmd::SetSleep(sleep) => {
+                self.state.lk().sleep = sleep;
+                // Turned off or pushed back during the fade: the volume comes back up.
+                if self.state.lk().playing {
+                    self.fade_to(self.want_gain(), FADE_PLAY);
                 }
             }
             Cmd::DeviceError => {
@@ -1157,18 +1268,74 @@ impl Engine {
                 self.load_current(0.0, false);
             }
         } else {
-            // End of the queue: stop and rewind the last song, like other players do.
-            self.fade_out(FADE_SKIP);
-            if let Some(p) = self.live.lk().take() {
-                p.stop();
-            }
-            self.fade = None;
-            self.gen += 1;
+            self.stop_and_rewind();
+        }
+    }
+
+    /// End of the queue: stop and rewind the last song, like other players do.
+    fn stop_and_rewind(&mut self) {
+        self.fade_out(FADE_SKIP);
+        if let Some(p) = self.live.lk().take() {
+            p.stop();
+        }
+        self.fade = None;
+        self.gen += 1;
+        let mut s = self.state.lk();
+        s.playing = false;
+        s.idle_pos = 0.0;
+        drop(s);
+        self.teardown_at = Some(Instant::now() + Duration::from_secs(5));
+    }
+
+    /// The sleep timer's "End of song": the song finished, so stop, with the next one ready
+    /// to go when you press play.
+    fn stop_after_song(&mut self) {
+        let (index, len, repeat) = {
             let mut s = self.state.lk();
             s.playing = false;
-            s.idle_pos = 0.0;
-            drop(s);
-            self.teardown_at = Some(Instant::now() + Duration::from_secs(5));
+            (s.index, s.queue.len(), s.repeat)
+        };
+        let next = match repeat {
+            Repeat::One => Some(index),
+            _ if index + 1 < len => Some(index + 1),
+            Repeat::All if len > 0 => Some(0),
+            _ => None,
+        };
+        match next {
+            Some(i) => {
+                self.state.lk().index = i;
+                self.load_current(0.0, false);
+            }
+            None => self.stop_and_rewind(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sleep_timer_fades_in_its_last_30_seconds() {
+        let now = Instant::now();
+        let at = |secs: u64| Sleep::At(now + Duration::from_secs(secs));
+        // Far off: full volume, and the engine sleeps until the fade starts.
+        assert_eq!(sleep_share(at(600), now), 1.0);
+        assert!(!sleep_fading(at(600), now));
+        assert_eq!(sleep_wake(at(600), now), Some(now + Duration::from_secs(570)));
+        // Halfway through the fade: a quarter of the volume (squared), and it wakes up often.
+        assert!((sleep_share(at(15), now) - 0.25).abs() < 1e-3);
+        assert!(sleep_fading(at(15), now));
+        assert_eq!(sleep_wake(at(15), now), Some(now + SLEEP_TICK));
+        // The last moment: it wakes exactly when the time is up.
+        assert_eq!(sleep_wake(Sleep::At(now + Duration::from_millis(50)), now), Some(now + Duration::from_millis(50)));
+        // Up: silent.
+        assert_eq!(sleep_share(Sleep::At(now), now), 0.0);
+        // Off or "End of song": nothing to do with the volume or the clock.
+        for s in [Sleep::Off, Sleep::EndOfSong] {
+            assert_eq!(sleep_share(s, now), 1.0);
+            assert!(!sleep_fading(s, now));
+            assert_eq!(sleep_wake(s, now), None);
         }
     }
 }

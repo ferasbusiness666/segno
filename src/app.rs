@@ -253,6 +253,9 @@ pub struct App {
     pub import: crate::import::Import,
     /// "Wrong song? Pick another", when open.
     pub picker: Option<crate::stream::Picker>,
+    /// "Listening to Segno" on Discord (while it's on in Settings), and what it was last told.
+    discord: Option<crate::discord::Presence>,
+    discord_seen: (Option<u64>, bool, u64),
     pub imm_queue: bool,
     pub vinyl_angle: f32,
     pub backdrop_angle: f32,
@@ -422,6 +425,8 @@ impl App {
             lyr: Default::default(),
             import: Default::default(),
             picker: None,
+            discord: None,
+            discord_seen: (None, false, 0),
             imm_queue: false,
             vinyl_angle: 0.0,
             backdrop_angle: 0.0,
@@ -1199,6 +1204,7 @@ impl App {
         self.ps = self.player.snapshot();
         self.pos = self.player.position();
         self.note_played();
+        self.sync_discord();
         // A new song: remember the old one so the views can cross-fade.
         let cur_id = self.current_id();
         if cur_id != self.swap_last {
@@ -1268,6 +1274,48 @@ impl App {
             if t.elapsed() > Duration::from_secs(3) {
                 self.save_all();
             }
+        }
+    }
+
+    /// Keep the Discord status on what's playing (cleared while paused).
+    fn sync_discord(&mut self) {
+        if !self.settings.discord_status {
+            // Letting go of it clears the status.
+            self.discord = None;
+            self.discord_seen = (None, false, 0);
+            return;
+        }
+        let d = self.discord.get_or_insert_with(crate::discord::Presence::start);
+        if !self.settings.discord_told && d.connected() {
+            self.settings.discord_told = true;
+            self.settings.save();
+            self.toast("Discord friends can see what you play. Turn off in Settings.");
+        }
+        let key = (self.current_id(), self.ps.playing, self.ps.version);
+        // A song still on its way from its site: wait until it plays, so the time bar is right.
+        if key == self.discord_seen || (self.ps.playing && self.ps.waiting) {
+            return;
+        }
+        self.discord_seen = key;
+        let act = self.ps.playing.then(|| self.now_info()).flatten().map(|t| {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+            let start = now - (self.pos * 1000.0) as i64;
+            let dur = self.now_duration();
+            let cover = match &t.preview {
+                Some(item) => item.thumb_url(),
+                None => self.lib.get(t.id).and_then(|x| x.yt_id.clone()).filter(|id| id.len() == 11 && !id.contains(':')).map(|id| format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")),
+            };
+            crate::discord::Activity {
+                title: t.title,
+                artist: if t.artist == "Unknown artist" { String::new() } else { t.artist },
+                album: t.album,
+                cover: crate::discord::cover_link(cover),
+                start_ms: start,
+                end_ms: (dur > 0.0).then(|| start + (dur * 1000.0) as i64),
+            }
+        });
+        if let Some(d) = &self.discord {
+            d.set(act);
         }
     }
 
@@ -2752,6 +2800,9 @@ impl App {
         if w::icon_button_at(ui, qr, qresp, icons::LIST_MUSIC, q_on, "Queue · drop songs here to add them").clicked() {
             self.actions.push(Action::ToggleQueue);
         }
+        rx = qr.left() - S1;
+        let sr = Rect::from_center_size(pos2(rx - 16.0, rect.center().y), Vec2::splat(32.0));
+        self.sleep_button(ui, sr);
         seek.width()
     }
 
