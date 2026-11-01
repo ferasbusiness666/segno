@@ -9,6 +9,12 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.21
+
+### Better
+- Music keeps playing smoothly when your computer is busy. Segno now gets songs ready a few seconds ahead, and asks Windows to give its sound priority.
+- Songs from YouTube and Spotify start playing while they're still downloading, instead of after.
+
 ## 1.1.20
 
 ### New

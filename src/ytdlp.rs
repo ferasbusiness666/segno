@@ -573,8 +573,15 @@ pub struct StreamFetcher {
 }
 
 impl StreamFetcher {
-    /// `done` gets the file (or why it failed). Asking again while it's on its way does nothing.
-    pub fn fetch(&self, item: YtItem, done: impl FnOnce(Result<PathBuf, String>) + Send + 'static) {
+    /// `arrived` hears once enough of the song is here to start playing it while the rest comes
+    /// in; `done` gets the whole file (or why it failed). Asking again while it's on its way
+    /// does nothing.
+    pub fn fetch(
+        &self,
+        item: YtItem,
+        arrived: impl FnOnce(crate::growing::Arrival) + Send + 'static,
+        done: impl FnOnce(Result<PathBuf, String>) + Send + 'static,
+    ) {
         {
             let mut sh = self.ctx.shared.lk();
             if let Some(PreviewState::Ready(p)) = sh.previews.get(&item.id) {
@@ -596,8 +603,17 @@ impl StreamFetcher {
         let ev_tx = self.ev_tx.clone();
         std::thread::spawn(move || {
             let slot = Mutex::new(None);
-            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_preview(&ctx, &item, &slot)))
+            let download = Arc::new(crate::growing::Download::default());
+            let mut arrived = Some(arrived);
+            let mut early = |path: PathBuf, ext: String| {
+                if let Some(f) = arrived.take() {
+                    f(crate::growing::Arrival { path, ext, download: download.clone() });
+                }
+            };
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_preview(&ctx, &item, &slot, &mut early)))
                 .unwrap_or_else(|_| Err("Something went wrong. Try again.".into()));
+            // Before `done`, so whoever reads the file as it comes in knows where it ends.
+            download.finish(res.is_ok());
             match res {
                 Ok(path) => {
                     let art = preview_cover(&item);
@@ -1609,7 +1625,12 @@ fn item_cover(item: &YtItem) -> Option<Vec<u8>> {
     Some(buf)
 }
 
-fn run_preview(ctx: &WorkerCtx, item: &YtItem, slot: &Mutex<Option<(u64, Child)>>) -> Result<PathBuf, String> {
+fn run_preview(
+    ctx: &WorkerCtx,
+    item: &YtItem,
+    slot: &Mutex<Option<(u64, Child)>>,
+    early: &mut dyn FnMut(PathBuf, String),
+) -> Result<PathBuf, String> {
     let dir = preview_dir();
     let stem = item.stem();
     let meta_path = dir.join(format!("{stem}.json"));
@@ -1621,11 +1642,19 @@ fn run_preview(ctx: &WorkerCtx, item: &YtItem, slot: &Mutex<Option<(u64, Child)>
     let shared = ctx.shared.clone();
     let notify = ctx.notify.clone();
     let mut last = Instant::now() - Duration::from_secs(1);
+    let mut started = false;
     let mut on_progress = |pct: f32, _speed: String| {
         shared.lk().previews.insert(id.clone(), PreviewState::Loading(pct));
         if last.elapsed() > Duration::from_millis(250) {
             last = Instant::now();
             notify();
+        }
+        // Enough is here to start playing while the rest comes in.
+        if !started {
+            if let Some((part, ext)) = crate::growing::started(&dir, &stem) {
+                started = true;
+                early(part, ext);
+            }
         }
     };
     let mut attempt = 0;
@@ -1782,6 +1811,11 @@ fn run_ytdlp_once(
     ]);
     cmd.arg(&out_tpl);
     cmd.arg("-o").arg(format!("thumbnail:{}", out_tpl.display()));
+    if tmp == preview_dir() {
+        // Songs played online are read while they download, so the file must stay the same
+        // one (a fix-up would rewrite it at the end, if FFmpeg happens to be installed).
+        cmd.args(["--fixup", "never"]);
+    }
     if !item.find.is_empty() && item.video.is_empty() {
         // A Spotify song found on YouTube: take the first result whose length is close to the
         // real song's, so a 10-minute live version or a 30-second clip doesn't win, and that

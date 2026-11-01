@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod ahead;
 mod app;
 mod art;
 mod icons;
@@ -14,6 +15,7 @@ mod queue;
 mod sleep;
 mod nowplaying;
 mod foryou;
+mod growing;
 mod changelog;
 mod discord;
 mod drag;

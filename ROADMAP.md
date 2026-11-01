@@ -126,20 +126,19 @@ In this order:
 - ✅ **Fix the four bugs** Codex reproduced (1.1.9)
 - 🟡 **Preview cache**: no mix-ups between songs (1.1.9). A size limit in Settings only if it turns out to grow big (it clears after 3 days)
 - ✅ **Synced lyrics** (1.1.12): lines scroll and light up with the song (free from LRCLIB), straight on the background beside the record on Now Playing and full screen, click a line to jump, Arabic reads right to left; your own .lrc file next to a song wins. 1.1.13: Try again, plain lyrics when there are no timed ones, slowed/sped-up versions stretch the original, much better matching for YouTube titles (checked against LRCLIB with real songs). 1.1.16: lyrics in every language (Japanese, Chinese, Korean, Thai, Hindi… with Windows' own fonts, loaded only when needed), "Wrong lyrics?", timed lyrics saved as .lrc next to songs, better exact matching. Next idea: pick from a list of matches
-- 🟡 **Online songs start sooner**: 1.1.19 keeps yt-dlp's cache (it used to re-solve YouTube's player code for every song) and searches YouTube directly (no yt-dlp start per search). Still to do: start playing while the song is still coming in, not after; maybe yt-dlp's unpacked Windows build (yt-dlp_win.zip) so it doesn't unpack itself on every start
-- ⬜ **Volume levelling**: loud and quiet songs play at the same level
-- ⬜ **Crossfade and gapless playback**: no gap between album songs
-- ⬜ **No stutter when the laptop lags**: much better since the 150 ms output buffer, but music
-  still stutters when the laptop freezes for longer than that (reported on Feras's i3 laptop).
-  The songs are decoded inside the audio callback, so a long stall empties the buffer. Fix:
-  decode a second or two ahead on its own thread (the callback only copies samples), and ask
-  Windows to give the audio thread priority (MMCSS "Pro Audio"). Do it together with crossfade
-  and gapless, which change the same part of the player.
+- 🟡 **Online songs start sooner**: 1.1.19 keeps yt-dlp's cache (it used to re-solve YouTube's player code for every song) and searches YouTube directly (no yt-dlp start per search). 1.1.21 plays a song while it's still coming in (from about 256 KB, read as the file grows; seeking waits for the whole file). Maybe later: yt-dlp's unpacked Windows build (yt-dlp_win.zip) so it doesn't unpack itself on every start
+- ⬜ **Volume levelling**: loud and quiet songs play at the same level (later, to get it right)
+- ⬜ **Crossfade and gapless playback**: no gap between album songs (later, to get it right)
+- ✅ **No stutter when the laptop lags** (1.1.21): songs are decoded (and converted to the
+  output's format) 2–3 s ahead on their own thread, which runs above normal priority; the audio
+  callback only copies samples out of a lock-free buffer (`ahead.rs`). The audio thread asks
+  Windows for audio priority (MMCSS, cpal's "realtime"). Seeks are handed to the decode thread.
+  Crossfade, gapless and levelling build on this later.
 - ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders. **Top of the list, with the sleep timer.**
 - ✅ **Sleep timer** (1.1.20): a moon in the player bar opens a small menu: 15 / 30 / 45 min, 1 hour or end of song. The last 30 s fade out, then it pauses and the volume goes back for next time. +10 min, turn off, and touching anything during the fade cancels it. Runs in the audio engine, so it works with the window in the tray
 - ✅ **Discord status** (1.1.20): "Listening to Segno" with the song, artist, cover, a time bar and a "Get Segno" button, through the Discord app on the same PC (looks for it every 20 s). Cleared on pause. On by default with a one-time note; off in Settings → Playback
 - ✅ **Wrong song? Pick another** (1.1.18): Spotify songs that play the wrong YouTube video: pick the right one from the results (same length as on Spotify is marked), remembered everywhere. The first guess also skips live, cover, sped-up and other versions unless the song itself is one
-- ⬜ **Tests for playback**, so bugs like these get caught before a release
+- 🟡 **Tests for playback**, so bugs like these get caught before a release. 1.1.21: decode-ahead (order, seeks, a slow decoder, channels in step, the thread stopping), files read while downloading, the sleep timer's fade. Still to do: the queue itself (next, shuffle, repeat, end of queue), which needs the player to run without a sound card
 - ~~New icon shows after an update~~: not needed, Segno launched with the new icon
 
 ## After that: make Segno stand out

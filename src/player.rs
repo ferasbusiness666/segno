@@ -124,6 +124,8 @@ pub enum Cmd {
     SetAutoplay(bool),
     /// A streamed song's file is ready (every queue entry for that song gets it).
     Fetched { id: u64, path: PathBuf },
+    /// A streamed song has started downloading: it can play from the part that's there.
+    Arriving { id: u64, arrival: crate::growing::Arrival },
     /// A streamed song couldn't be fetched: if it's the one waiting, move on.
     FetchFailed { id: u64 },
     /// Set or turn off the sleep timer.
@@ -261,6 +263,8 @@ pub fn spawn(notify: Arc<dyn Fn() + Send + Sync>) -> PlayerHandle {
                 library,
                 fetcher,
                 fade: None,
+                arriving: Default::default(),
+                growing: None,
             };
             eng.run(rx);
         })
@@ -409,6 +413,11 @@ struct Engine {
     fetcher: Fetcher,
     /// The volume ramp of the song that's loaded.
     fade: Option<Arc<FadeCtl>>,
+    /// Streamed songs that are on their way, by track id (until they're all here).
+    arriving: std::collections::HashMap<u64, crate::growing::Arrival>,
+    /// The song that's loaded plays from a file that was still downloading when it started
+    /// (it can't seek until the whole file is here).
+    growing: Option<Arc<crate::growing::Download>>,
 }
 
 impl Engine {
@@ -628,6 +637,19 @@ impl Engine {
         }
     }
 
+    /// A streamed song that isn't here yet: wait for it (`Cmd::Arriving` or `Cmd::Fetched`
+    /// starts it), at `at` seconds.
+    fn wait_for(&mut self, id: u64, at: f32, autoplay: bool) {
+        let mut s = self.state.lk();
+        s.waiting = true;
+        s.playing = autoplay;
+        s.duration = 0.0;
+        s.idle_pos = at;
+        s.error = None;
+        drop(s);
+        self.want(id);
+    }
+
     /// Load the current queue item into a fresh player and start at `at` seconds.
     fn load_current(&mut self, at: f32, autoplay: bool) -> bool {
         self.teardown_at = None;
@@ -638,6 +660,7 @@ impl Engine {
         }
         self.fade = None;
         self.gen += 1;
+        self.growing = None;
         let item = {
             let s = self.state.lk();
             s.queue.get(s.index).cloned()
@@ -649,43 +672,35 @@ impl Engine {
             s.waiting = false;
             return false;
         };
+        let mut arrival = None;
         if item.stream && !item.path.is_file() {
-            // Not here yet: wait for the app to fetch it, then `Cmd::Fetched` starts it.
-            let mut s = self.state.lk();
-            s.waiting = true;
-            s.playing = autoplay;
-            s.duration = 0.0;
-            s.idle_pos = 0.0;
-            s.error = None;
-            drop(s);
-            self.want(item.id);
-            return true;
+            // On its way: from the top, it can play from the part that's there already.
+            arrival = self.arriving.get(&item.id).filter(|_| at < 0.5).cloned();
+            if arrival.is_none() {
+                self.wait_for(item.id, at, autoplay);
+                return true;
+            }
         }
         self.state.lk().waiting = false;
         if !self.ensure_sink() {
             self.state.lk().playing = false;
             return false;
         }
-        let decoder = File::open(&item.path).ok().and_then(|f| {
-            let len = f.metadata().map(|m| m.len()).ok();
-            let ext = item
-                .path
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            let mut b = rodio::Decoder::builder()
-                .with_data(BufReader::new(f))
-                .with_seekable(true)
-                .with_gapless(true);
-            if let Some(l) = len {
-                b = b.with_byte_len(l);
-            }
-            if !ext.is_empty() {
-                b = b.with_hint(&ext);
-            }
-            b.build().ok()
-        });
-        let Some(decoder) = decoder else {
+        let decoder = match &arrival {
+            Some(a) => match open_growing(a) {
+                Some(d) => {
+                    self.growing = Some(a.download.clone());
+                    Some(d)
+                }
+                None => {
+                    // It can't be read while it's coming in: wait for the whole file.
+                    self.wait_for(item.id, at, autoplay);
+                    return true;
+                }
+            },
+            None => open_file(&item.path),
+        };
+        let Some(mut decoder) = decoder else {
             let name = item
                 .path
                 .file_name()
@@ -697,7 +712,15 @@ impl Engine {
             return false;
         };
         let duration = decoder.total_duration().map(|d| d.as_secs_f32()).unwrap_or(0.0);
+        let start = (at > 0.5).then(|| Duration::from_secs_f32(at));
+        if let Some(t) = start {
+            let _ = decoder.try_seek(t);
+        }
         let sink = self.sink.as_ref().unwrap();
+        // Decoded a few seconds ahead on its own thread; the audio thread only copies samples.
+        let cfg = sink.config();
+        let ahead = crate::ahead::Ahead::new(decoder, cfg.channel_count(), cfg.sample_rate(), start);
+        ahead.wait_ready(Duration::from_millis(400));
         let player = rodio::Player::connect_new(sink.mixer());
         // The volume lives in the fader, which starts silent and glides up: quickly for a song
         // from the top, slower when picking up in the middle.
@@ -708,15 +731,16 @@ impl Engine {
         if !autoplay {
             player.pause();
         }
-        player.append(Fader { inner: decoder, ctl: fade.clone(), gain: 0.0, at: 0 });
+        player.append(Fader { inner: ahead, ctl: fade.clone(), gain: 0.0, at: 0 });
         self.fade = Some(fade);
         let gen = self.gen;
         let tx = self.tx.clone();
         player.append(EmptyCallback::new(Box::new(move || {
             let _ = tx.send(Cmd::TrackEnded(gen));
         })));
-        if at > 0.5 {
-            let _ = player.try_seek(Duration::from_secs_f32(at));
+        if let Some(t) = start {
+            // Already there (see above); this tells the player where it is.
+            let _ = player.try_seek(t);
         }
         let player = Arc::new(player);
         *self.live.lk() = Some(player);
@@ -1086,7 +1110,8 @@ impl Engine {
             }
             Cmd::SetAutoplay(on) => self.state.lk().autoplay = on,
             Cmd::Fetched { id, path } => {
-                let (start, intent) = {
+                self.arriving.remove(&id);
+                let (start, intent, at) = {
                     let mut guard = self.state.lk();
                     let s = &mut *guard;
                     for q in s.queue.iter_mut().chain(s.original.iter_mut()) {
@@ -1095,13 +1120,25 @@ impl Engine {
                         }
                     }
                     let cur = s.queue.get(s.index).map(|q| q.id);
-                    (s.waiting && cur == Some(id), s.playing)
+                    (s.waiting && cur == Some(id), s.playing, s.idle_pos)
                 };
+                if start {
+                    self.load_current(at, intent);
+                }
+            }
+            Cmd::Arriving { id, arrival } => {
+                let (start, intent) = {
+                    let s = self.state.lk();
+                    let cur = s.queue.get(s.index).map(|q| q.id);
+                    (s.waiting && cur == Some(id) && s.idle_pos < 0.5, s.playing)
+                };
+                self.arriving.insert(id, arrival);
                 if start {
                     self.load_current(0.0, intent);
                 }
             }
             Cmd::FetchFailed { id } => {
+                self.arriving.remove(&id);
                 let skip = {
                     let mut s = self.state.lk();
                     let cur = s.queue.get(s.index).map(|q| q.id);
@@ -1167,6 +1204,30 @@ impl Engine {
 
     fn seek(&mut self, secs: f32) {
         let secs = secs.max(0.0);
+        if let Some(dl) = self.growing.clone() {
+            if self.player().is_some() {
+                // Playing from a file that was still downloading: it can't seek. Once the
+                // whole file is here, open it again at the new spot; until then, wait there.
+                let playing = self.state.lk().playing;
+                if dl.done() || secs < 0.5 {
+                    // The whole file, or back to the start (which it can read as it comes in).
+                    self.load_current(secs, playing);
+                } else {
+                    self.fade_out(FADE_SEEK);
+                    if let Some(p) = self.live.lk().take() {
+                        p.stop();
+                    }
+                    self.fade = None;
+                    self.growing = None;
+                    self.gen += 1;
+                    let id = self.state.lk().current().map(|q| q.id);
+                    if let Some(id) = id {
+                        self.wait_for(id, secs, playing);
+                    }
+                }
+                return;
+            }
+        }
         match self.player() {
             Some(p) if !p.empty() => {
                 let audible = !p.is_paused();
@@ -1309,6 +1370,36 @@ impl Engine {
             None => self.stop_and_rewind(),
         }
     }
+}
+
+/// A song file, ready to decode (None if it can't be read).
+fn open_file(path: &std::path::Path) -> Option<Box<dyn Source + Send>> {
+    let f = File::open(path).ok()?;
+    let len = f.metadata().map(|m| m.len()).ok();
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let mut b = rodio::Decoder::builder().with_data(BufReader::new(f)).with_seekable(true).with_gapless(true);
+    if let Some(l) = len {
+        b = b.with_byte_len(l);
+    }
+    if !ext.is_empty() {
+        b = b.with_hint(&ext);
+    }
+    Some(Box::new(b.build().ok()?))
+}
+
+/// A song that's still downloading, read from the start as it comes in. It can't seek, so
+/// the decoder reads it straight through.
+fn open_growing(a: &crate::growing::Arrival) -> Option<Box<dyn Source + Send>> {
+    let (file, patient) = crate::growing::Growing::open(a).ok()?;
+    let d = rodio::Decoder::builder()
+        .with_data(BufReader::new(file))
+        .with_seekable(false)
+        .with_gapless(true)
+        .with_hint(&a.ext)
+        .build()
+        .ok()?;
+    patient.store(true, Ordering::Relaxed);
+    Some(Box::new(d))
 }
 
 #[cfg(test)]

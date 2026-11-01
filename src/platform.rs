@@ -334,6 +334,17 @@ pub fn leave_fullscreen(_hwnd: isize, _saved: &SavedWindow) {
     }
 }
 
+/// Ask Windows to run this thread ahead of ordinary work (the thread that decodes songs, so it
+/// keeps up when the laptop is busy). The audio output thread itself gets audio priority from
+/// the sound library.
+pub fn raise_thread_priority() {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL};
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    }
+}
+
 /// Bring the window to the front (used when the tray icon is clicked).
 pub fn bring_to_front(_hwnd: isize) {
     #[cfg(windows)]

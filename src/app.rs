@@ -484,13 +484,17 @@ impl App {
                     ph.send(Cmd::FetchFailed { id });
                     return;
                 };
-                let ph2 = ph.clone();
-                fetcher.fetch(item, move |res| {
-                    ph2.send(match res {
-                        Ok(path) => Cmd::Fetched { id, path },
-                        Err(_) => Cmd::FetchFailed { id },
-                    })
-                });
+                let (ph2, ph3) = (ph.clone(), ph.clone());
+                fetcher.fetch(
+                    item,
+                    move |arrival| ph2.send(Cmd::Arriving { id, arrival }),
+                    move |res| {
+                        ph3.send(match res {
+                            Ok(path) => Cmd::Fetched { id, path },
+                            Err(_) => Cmd::FetchFailed { id },
+                        })
+                    },
+                );
             }));
         }
         app.register_playlist_streams();
