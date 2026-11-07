@@ -1,0 +1,100 @@
+{
+ "responseContext": {
+  "visitorData": "CgttSzB3cjBXR25Ecyjnhb3XBjIKCgJVUxIEGgAgDg%3D%3D",
+  "serviceTrackingParams": [
+   {
+    "service": "GFEEDBACK",
+    "params": [
+     {
+      "key": "browse_id",
+      "value": "MPLYt_vEqTsBIcror"
+     },
+     {
+      "key": "browse_id_prefix",
+      "value": ""
+     },
+     {
+      "key": "has_unlimited_entitlement",
+      "value": "False"
+     },
+     {
+      "key": "logged_in",
+      "value": "0"
+     }
+    ]
+   },
+   {
+    "service": "CSI",
+    "params": [
+     {
+      "key": "c",
+      "value": "WEB_REMIX"
+     },
+     {
+      "key": "cver",
+      "value": "1.20261107.01.00"
+     },
+     {
+      "key": "yt_li",
+      "value": "0"
+     },
+     {
+      "key": "GetBrowseTrackLyricsPage_rid",
+      "value": "0x6631ccf689e325e9"
+     }
+    ]
+   },
+   {
+    "service": "ECATCHER",
+    "params": [
+     {
+      "key": "client.version",
+      "value": "1.20000101"
+     },
+     {
+      "key": "client.name",
+      "value": "WEB_REMIX"
+     }
+    ]
+   }
+  ],
+  "responseId": "IhMIms3rtJX2lwMVN_c_BB0xFxg9"
+ },
+ "contents": {
+  "sectionListRenderer": {
+   "contents": [
+    {
+     "musicDescriptionShelfRenderer": {
+      "description": {
+       "runs": [
+        {
+         "text": "I'm in the thick of it, everybody knows\nThey know me where it snows, I skied in and they froze\nI don't know no nothin' 'bout no ice, I'm just cold\n40 somethin' milli' subs or so, I've been told\n\nI'm in my prime, and this ain't even my final form\nThey knocked me down, but still, my feet, they find the floor\nI went from living rooms straight out to sold-out tours\nLife's a fight, but trust, I'm ready for the war\n\nWhoa-oh-oh\nThis is how the story goes\nWhoa-oh-oh\nI guess this is how the story goes\n\nI'm in the thick of it, everybody knows\nThey know me where it snows, I skied in and they froze\nI don't know no nothin' 'bout no ice, I'm just cold\n40 somethin' milli' subs or so, I've been told\n\nFrom the screen, to the ring, to the pen, to the king\nWhere's my crown? That's my bling, always drama when I ring\nSee, I believe that if I see it in my heart\nSmash through the ceiling 'cause I'm reaching for the stars\n\nWhoa-oh-oh\nThis is how the story goes?\nWhoa-oh-oh\nI guess this is how the story goes\n\nI'm in the thick of it, everybody knows\nThey know me where it snows, I skied in and they froze\nI don't know no nothin' 'bout no ice, I'm just cold\n40 somethin' milli' subs or so, I've been told\n\nHighway to heaven, I'm just cruisin' by my lone'\nThey cast me out, left me for dead, them people cold\nMy faith in God, mind in the sun, I'm 'bout to sow (yeah)\nMy life is hard, I took the wheel, I cracked the code (yeah-yeah, whoa-oh-oh)\nAin't nobody gon' save you, man, this life will break you (whoa-oh-oh)\nIn the thick of it, this is how the story goes\n\nI'm in the thick of it, everybody knows\nThey know me where it snows, I skied in and they froze (woo)\nI don't know no nothin' 'bout no ice, I'm just cold\n40 somethin' milli' subs or so, I've been told\n\nI'm in the thick of it, everybody knows\nThey know me where it snows, I skied in and they froze (yeah)\nI don't know no nothin' 'bout no ice, I'm just cold\n40 somethin' milli' subs or so, I've been told (ooh-ooh)\n\nWhoa-oh-oh (nah-nah-nah-nah, ayy, ayy)\nThis is how the story goes (nah, nah)\nWoah-oh-oh\nI guess this is how the story goes"
+        }
+       ]
+      },
+      "trackingParams": "CAIQ2fQEGAAiEwiazeu0lfaXAxU39z8EHTEXGD0=",
+      "maxCollapsedLines": 0,
+      "maxExpandedLines": 0,
+      "onShowCommands": [
+       {
+        "clickTrackingParams": "CAIQ2fQEGAAiEwiazeu0lfaXAxU39z8EHTEXGD3KAQS6vELX",
+        "logLyricEventCommand": {
+         "serializedLyricInfo": "Eg10X3ZFcVRzQkljcm9yGAIiCTE4ODYzNTE2MA=="
+        }
+       }
+      ],
+      "footer": {
+       "runs": [
+        {
+         "text": "Source: Musixmatch"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "trackingParams": "CAEQui8iEwiazeu0lfaXAxU39z8EHTEXGD0="
+  }
+ },
+ "trackingParams": "CAAQhGciEwiazeu0lfaXAxU39z8EHTEXGD3KAQS6vELX"
+}

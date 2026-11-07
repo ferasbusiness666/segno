@@ -1,0 +1,100 @@
+{
+ "responseContext": {
+  "visitorData": "Cgt4OWhjSDk0YlYyWSjlhb3XBjIKCgJVUxIEGgAgPw%3D%3D",
+  "serviceTrackingParams": [
+   {
+    "service": "GFEEDBACK",
+    "params": [
+     {
+      "key": "browse_id",
+      "value": "MPLYt_6lZH4bVX9mz-1"
+     },
+     {
+      "key": "browse_id_prefix",
+      "value": ""
+     },
+     {
+      "key": "has_unlimited_entitlement",
+      "value": "False"
+     },
+     {
+      "key": "logged_in",
+      "value": "0"
+     }
+    ]
+   },
+   {
+    "service": "CSI",
+    "params": [
+     {
+      "key": "c",
+      "value": "WEB_REMIX"
+     },
+     {
+      "key": "cver",
+      "value": "1.20261107.01.00"
+     },
+     {
+      "key": "yt_li",
+      "value": "0"
+     },
+     {
+      "key": "GetBrowseTrackLyricsPage_rid",
+      "value": "0xea3e0853ae7651c9"
+     }
+    ]
+   },
+   {
+    "service": "ECATCHER",
+    "params": [
+     {
+      "key": "client.version",
+      "value": "1.20000101"
+     },
+     {
+      "key": "client.name",
+      "value": "WEB_REMIX"
+     }
+    ]
+   }
+  ],
+  "responseId": "IhMIo_OXtJX2lwMVyMc_BB2nGyvX"
+ },
+ "contents": {
+  "sectionListRenderer": {
+   "contents": [
+    {
+     "musicDescriptionShelfRenderer": {
+      "description": {
+       "runs": [
+        {
+         "text": "I'm in the thick of it, everybody knows\r\nThey know me where it snows, I skied in and they froze\r\nI don't know no nothin' 'bout no ice, I'm just cold\r\nForty somethin' milli' subs or so, I've been told\r\n\r\nI'm in my prime but this ain't even final form\r\nThey knocked me down, but still, my feet, they find the floor\r\nI went from living rooms straight up to sold-out tours\r\nLife's a fight, but trust, I'm ready for the war\r\n\r\nWhoa-oh-oh\r\nThis is how the story goes\r\nWhoa-oh-oh\r\nI guess this is how the story goes\r\n\r\nI'm in the thick of it, everybody knows\r\nThey know me where it snows, I skied in and they froze\r\nI don't know no nothin' 'bout no ice, I'm just cold\r\nForty somethin' milli' subs or so, I've been told\r\n\r\nFrom the screen to the ring, to the pen, to the king\r\nWhere's my crown? That's my bling\r\nAlways drama when I ring\r\nSee, I believe that if I see it in my heart\r\nSmash through the ceiling 'cause I'm reachin' for the stars\r\n\r\nWhoa-oh-oh\r\nThis is how the story goes\r\nWhoa-oh-oh\r\nI guess this is how the story goes\r\n\r\nI'm in the thick of it, everybody knows\r\nThey know me where it snows, I skied in and they froze (woo)\r\nI don't know no nothin' 'bout no ice, I'm just cold\r\nForty somethin' milli' subs or so, I've been told\r\n\r\nHighway to heaven, I'm just cruisin' by my lone'\r\nThey cast me out, left me for dead, them people cold\r\nMy faith in God, mind in the sun, I'm by the soul (yeah)\r\nMy life is hard, I took the wheel, I cracked the code (yeah-yeah)\r\nAin't nobody gon' save you, man, this life will break you (whoa-oh-oh)\r\nIn the thick of it, this is how the story goes\r\n\r\nI'm in the thick of it, everybody knows\r\nThey know me where it snows, I skied in and they froze\r\nI don't know no nothin' 'bout no ice, I'm just cold\r\nForty somethin' milli' subs or so, I've been told\r\nI'm in the thick of it, everybody knows (everybody knows)\r\nThey know me where it snows, I skied in and they froze (yeah)\r\nI don't know no nothin' 'bout no ice, I'm just cold\r\nForty somethin' milli' subs or so, I've been told (ooh-ooh)\r\n\r\nWhoa-oh-oh (nah-nah-nah-nah, ayy, ayy)\r\nThis is how the story goes (nah, nah)\r\nWhoa-oh-oh\r\nI guess this is how the story goes"
+        }
+       ]
+      },
+      "trackingParams": "CAIQ2fQEGAAiEwij85e0lfaXAxXIxz8EHacbK9c=",
+      "maxCollapsedLines": 0,
+      "maxExpandedLines": 0,
+      "onShowCommands": [
+       {
+        "clickTrackingParams": "CAIQ2fQEGAAiEwij85e0lfaXAxXIxz8EHacbK9fKAQSGFIiL",
+        "logLyricEventCommand": {
+         "serializedLyricInfo": "CgwwMDItMTU5MjY5NDISD3RfNmxaSDRiVlg5bXotMRgBIgwwMDItMTU5MjY5NDI="
+        }
+       }
+      ],
+      "footer": {
+       "runs": [
+        {
+         "text": "Source: LyricFind"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "trackingParams": "CAEQui8iEwij85e0lfaXAxXIxz8EHacbK9c="
+  }
+ },
+ "trackingParams": "CAAQhGciEwij85e0lfaXAxXIxz8EHacbK9fKAQSGFIiL"
+}

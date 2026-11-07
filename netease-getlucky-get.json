@@ -1,0 +1,321 @@
+{
+ "result": {
+  "songs": [
+   {
+    "album": {
+     "publishTime": 1368720000000,
+     "size": 14,
+     "artist": {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7001,
+     "name": "Random Access Memories",
+     "id": 2462086,
+     "picId": 109951167934241950,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 369684,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Daft Punk",
+      "alias": [],
+      "id": 90513,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Pharrell Williams",
+      "alias": [],
+      "id": 41151,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Nile Rodgers",
+      "alias": [],
+      "id": 69491,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7001,
+    "mvid": 14333351,
+    "name": "Get Lucky",
+    "alias": [],
+    "id": 26349642,
+    "mark": 17180139520,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1366300800000,
+     "size": 1,
+     "artist": {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7001,
+     "name": "Get Lucky (Radio Edit)",
+     "id": 2426077,
+     "picId": 109951165968058257,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 248430,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Daft Punk",
+      "alias": [],
+      "id": 90513,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Pharrell Williams",
+      "alias": [],
+      "id": 41151,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7001,
+    "mvid": 14333351,
+    "name": "Get Lucky (Radio Edit)",
+    "alias": [],
+    "id": 26217522,
+    "mark": 17180139520,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1467907200000,
+     "size": 30,
+     "artist": {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7001,
+     "name": "Sunny Songs",
+     "id": 34769411,
+     "picId": 109951165971117208,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 248476,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Nile Rodgers",
+      "alias": [],
+      "id": 69491,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Pharrell Williams",
+      "alias": [],
+      "id": 41151,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Daft Punk",
+      "alias": [],
+      "id": 90513,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7001,
+    "mvid": 232005,
+    "name": "Get Lucky (Radio Edit)",
+    "alias": [],
+    "id": 420480815,
+    "mark": 270336,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1372780800007,
+     "size": 1,
+     "artist": {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7001,
+     "name": "Get Lucky (Daft Punk Remix)",
+     "id": 2528566,
+     "picId": 6661940953409790,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 8,
+    "duration": 629000,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Daft Punk",
+      "alias": [],
+      "id": 90513,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Pharrell Williams",
+      "alias": [],
+      "id": 41151,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7001,
+    "mvid": 349846,
+    "name": "Get Lucky (Daft Punk Remix)",
+    "alias": [],
+    "id": 26591109,
+    "mark": 17180139520,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1683820800000,
+     "size": 22,
+     "artist": {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7001,
+     "name": "Random Access Memories (10th Anniversary Edition)",
+     "id": 165455240,
+     "picId": 109951168606360926,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 369684,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Daft Punk",
+      "alias": [],
+      "id": 90513,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Pharrell Williams",
+      "alias": [],
+      "id": 41151,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Nile Rodgers",
+      "alias": [],
+      "id": 69491,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7001,
+    "mvid": 14333351,
+    "name": "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+    "alias": [],
+    "id": 2046700582,
+    "mark": 17180139520,
+    "status": 0
+   }
+  ],
+  "hasMore": true,
+  "songCount": 327
+ },
+ "code": 200,
+ "trp": {
+  "rules": [
+   "search_tab_song::2046700582::searchAlg$isGlobalQuality$2",
+   "search_tab_song::26217522::searchAlg$isGlobalQuality$1",
+   "search_tab_song::26349642::searchAlg$isGlobalQuality$1"
+  ]
+ }
+}

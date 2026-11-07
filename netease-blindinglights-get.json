@@ -1,0 +1,262 @@
+{
+ "result": {
+  "songs": [
+   {
+    "album": {
+     "publishTime": 1599753600000,
+     "size": 4,
+     "artist": {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7003,
+     "name": "Blinding Lights",
+     "id": 83768303,
+     "picId": 109951165370121751,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 200045,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "The Weeknd",
+      "alias": [],
+      "id": 185858,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7003,
+    "mvid": 10913109,
+    "name": "Blinding Lights",
+    "alias": [],
+    "id": 1406633327,
+    "mark": 17180139520,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1584633600000,
+     "size": 18,
+     "artist": {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7003,
+     "name": "After Hours (Deluxe)",
+     "id": 142157338,
+     "picId": 109951173368778796,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 200045,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "The Weeknd",
+      "alias": [],
+      "id": 185858,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7003,
+    "mvid": 0,
+    "name": "Blinding Lights",
+    "alias": [],
+    "id": 1930178116,
+    "mark": 17180139520,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1677772800000,
+     "size": 31,
+     "artist": {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7003,
+     "name": "After Hours (Live At SoFi Stadium)",
+     "id": 161174701,
+     "picId": 109951168439801358,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 253365,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "The Weeknd",
+      "alias": [],
+      "id": 185858,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7003,
+    "mvid": 0,
+    "name": "Blinding Lights (Live)",
+    "alias": [],
+    "id": 2027162148,
+    "mark": 17718059008,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1585843200000,
+     "size": 22,
+     "artist": {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7003,
+     "name": "After Hours (Deluxe)",
+     "id": 86755720,
+     "picId": 109951173691750772,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 261276,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "The Weeknd",
+      "alias": [],
+      "id": 185858,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "Chromatics",
+      "alias": [],
+      "id": 89463,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7003,
+    "mvid": 0,
+    "name": "Blinding Lights (Chromatics Remix)",
+    "alias": [],
+    "id": 1433196365,
+    "mark": 17180139520,
+    "status": 0
+   },
+   {
+    "album": {
+     "publishTime": 1607011200000,
+     "size": 1,
+     "artist": {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "",
+      "alias": [],
+      "id": 0,
+      "picId": 0
+     },
+     "copyrightId": 7003,
+     "name": "Blinding Lights (Remix)",
+     "id": 99131899,
+     "picId": 109951165517366346,
+     "mark": 0,
+     "status": 1
+    },
+    "fee": 1,
+    "duration": 216123,
+    "rtype": 0,
+    "ftype": 0,
+    "artists": [
+     {
+      "img1v1Url": "https://p3.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "The Weeknd",
+      "alias": [],
+      "id": 185858,
+      "picId": 0
+     },
+     {
+      "img1v1Url": "https://p4.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+      "musicSize": 0,
+      "albumSize": 0,
+      "img1v1": 0,
+      "name": "ROSALÍA",
+      "alias": [],
+      "id": 320153,
+      "picId": 0
+     }
+    ],
+    "copyrightId": 7003,
+    "mvid": 10979752,
+    "name": "Blinding Lights (Remix)",
+    "alias": [],
+    "id": 1500412585,
+    "mark": 17180139520,
+    "status": 0
+   }
+  ],
+  "hasMore": true,
+  "songCount": 333
+ },
+ "code": 200,
+ "trp": {
+  "rules": [
+   "search_tab_song::1406633327::searchAlg$isGlobalQuality$1",
+   "search_tab_song::2027162148::searchAlg$isGlobalQuality$1",
+   "search_tab_song::1930178116::searchAlg$isGlobalQuality$1",
+   "search_tab_song::1433196365::searchAlg$isGlobalQuality$1"
+  ]
+ }
+}

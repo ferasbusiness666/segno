@@ -1,0 +1,87 @@
+{
+ "responseContext": {
+  "visitorData": "CgtUY25RN2FubmRvayjqhb3XBjIKCgJVUxIEGgAgSA%3D%3D",
+  "serviceTrackingParams": [
+   {
+    "service": "GFEEDBACK",
+    "params": [
+     {
+      "key": "browse_id",
+      "value": "MPLYt_Mo40rN0gffj"
+     },
+     {
+      "key": "browse_id_prefix",
+      "value": ""
+     },
+     {
+      "key": "has_unlimited_entitlement",
+      "value": "False"
+     },
+     {
+      "key": "logged_in",
+      "value": "0"
+     }
+    ]
+   },
+   {
+    "service": "CSI",
+    "params": [
+     {
+      "key": "c",
+      "value": "WEB_REMIX"
+     },
+     {
+      "key": "cver",
+      "value": "1.20261107.01.00"
+     },
+     {
+      "key": "yt_li",
+      "value": "0"
+     },
+     {
+      "key": "GetBrowseTrackLyricsPage_rid",
+      "value": "0xe9198ca35137ac93"
+     }
+    ]
+   },
+   {
+    "service": "ECATCHER",
+    "params": [
+     {
+      "key": "client.version",
+      "value": "1.20000101"
+     },
+     {
+      "key": "client.name",
+      "value": "WEB_REMIX"
+     }
+    ]
+   }
+  ],
+  "responseId": "IhMIt9eqtpX2lwMVzPg_BB1QvgGa"
+ },
+ "contents": {
+  "messageRenderer": {
+   "text": {
+    "runs": [
+     {
+      "text": "Lyrics not available"
+     }
+    ]
+   },
+   "trackingParams": "CAEQljsiEwi316q2lfaXAxXM-D8EHVC-AZo=",
+   "subtext": {
+    "messageSubtextRenderer": {
+     "text": {
+      "runs": [
+       {
+        "text": "If the song has lyrics, they'll show up here when they become available"
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "trackingParams": "CAAQhGciEwi316q2lfaXAxXM-D8EHVC-AZrKAQRnFBoM"
+}

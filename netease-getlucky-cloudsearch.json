@@ -1,0 +1,701 @@
+{
+ "result": {
+  "songs": [
+   {
+    "no": 8,
+    "rt": "600902000007997226",
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3637252,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "vivid",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 26349642,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "vivid",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "vivid",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 100.0,
+    "dt": 369684,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 26349642,
+    "sq": {
+     "br": 1622158,
+     "fid": 0,
+     "size": 74960931,
+     "vd": -29798.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "1",
+    "publishTime": 1368979200000,
+    "cf": "",
+    "originCoverType": 1,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 14789529,
+     "vd": -29797.0,
+     "sr": 44100
+    },
+    "mv": 14333351,
+    "al": {
+     "picUrl": "http://p3.music.126.net/GHFv5eordjbjzdXTh8i_8g==/109951167934241950.jpg",
+     "name": "Random Access Memories",
+     "tns": [],
+     "pic_str": "109951167934241950",
+     "id": 2462086,
+     "pic": 109951167934241950
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 5915838,
+     "vd": -25355.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 8873735,
+     "vd": -27192.0,
+     "sr": 44100
+    },
+    "version": 69,
+    "cp": 7001,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "Daft Punk",
+      "tns": [
+       "蠢朋克乐队"
+      ],
+      "alias": [],
+      "id": 90513
+     },
+     {
+      "name": "Pharrell Williams",
+      "tns": [],
+      "alias": [],
+      "id": 41151
+     },
+     {
+      "name": "Nile Rodgers",
+      "tns": [],
+      "alias": [],
+      "id": 69491
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 103,
+    "name": "Get Lucky",
+    "mark": 17180139520
+   },
+   {
+    "no": 1,
+    "rt": "600902000007997226",
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3637252,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "vivid",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 26217522,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "vivid",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "vivid",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 60.0,
+    "dt": 248430,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 26217522,
+    "sq": {
+     "br": 1664023,
+     "fid": 0,
+     "size": 51674236,
+     "vd": -49805.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "1",
+    "publishTime": 1366300800000,
+    "cf": "",
+    "originCoverType": 0,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 9940158,
+     "vd": -49797.0,
+     "sr": 44100
+    },
+    "mv": 14333351,
+    "al": {
+     "picUrl": "http://p3.music.126.net/0UQtksUOvRKsAfEuBg3TIg==/109951165968058257.jpg",
+     "name": "Get Lucky (Radio Edit)",
+     "tns": [],
+     "pic_str": "109951165968058257",
+     "id": 2426077,
+     "pic": 109951165968058257
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 3976089,
+     "vd": -45392.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 5964112,
+     "vd": -47196.0,
+     "sr": 44100
+    },
+    "version": 35,
+    "cp": 7001,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "Daft Punk",
+      "tns": [
+       "蠢朋克乐队"
+      ],
+      "alias": [],
+      "id": 90513
+     },
+     {
+      "name": "Pharrell Williams",
+      "tns": [],
+      "alias": [],
+      "id": 41151
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 69,
+    "name": "Get Lucky (Radio Edit)",
+    "mark": 17180139520
+   },
+   {
+    "no": 15,
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3637252,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "vivid",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 420480815,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "vivid",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "vivid",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 15.0,
+    "dt": 248476,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 420480815,
+    "sq": {
+     "br": 1669765,
+     "fid": 0,
+     "size": 51862226,
+     "vd": -41034.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "1",
+    "publishTime": 1467907200000,
+    "cf": "",
+    "originCoverType": 0,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 9941203,
+     "vd": -41033.0,
+     "sr": 44100
+    },
+    "mv": 232005,
+    "al": {
+     "picUrl": "http://p3.music.126.net/nxn90o0NhVw3lwbT-viMKw==/109951165971117208.jpg",
+     "name": "Sunny Songs",
+     "tns": [],
+     "pic_str": "109951165971117208",
+     "id": 34769411,
+     "pic": 109951165971117208
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 3976507,
+     "vd": -36606.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 5964739,
+     "vd": -38448.0,
+     "sr": 44100
+    },
+    "version": 18,
+    "cp": 7001,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "Nile Rodgers",
+      "tns": [],
+      "alias": [],
+      "id": 69491
+     },
+     {
+      "name": "Pharrell Williams",
+      "tns": [],
+      "alias": [],
+      "id": 41151
+     },
+     {
+      "name": "Daft Punk",
+      "tns": [
+       "蠢朋克乐队"
+      ],
+      "alias": [],
+      "id": 90513
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 52,
+    "name": "Get Lucky (Radio Edit)",
+    "mark": 270336
+   },
+   {
+    "no": 1,
+    "rt": "",
+    "copyright": 1,
+    "fee": 8,
+    "privilege": {
+     "flag": 3375108,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "vivid",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 26591109,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 0
+      },
+      {
+       "rate": 192000,
+       "chargeType": 0
+      },
+      {
+       "rate": 320000,
+       "chargeType": 0
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": false,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "vivid",
+     "cp": 1,
+     "preSell": false,
+     "playMaxBrLevel": "vivid",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 25.0,
+    "dt": 629000,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 26591109,
+    "sq": {
+     "br": 823594,
+     "fid": 0,
+     "size": 64806579,
+     "vd": 37259.0,
+     "sr": 48000
+    },
+    "st": 0,
+    "cd": "1",
+    "publishTime": 1372780800007,
+    "cf": "",
+    "originCoverType": 0,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 25183128,
+     "vd": 37252.0,
+     "sr": 44100
+    },
+    "mv": 349846,
+    "al": {
+     "picUrl": "http://p4.music.126.net/Q-bfd_0_RL71Xw6R7J5lTg==/6661940953409790.jpg",
+     "name": "Get Lucky (Daft Punk Remix)",
+     "tns": [],
+     "id": 2528566,
+     "pic": 6661940953409790
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 10073277,
+     "vd": 41583.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 15109894,
+     "vd": 39862.0,
+     "sr": 44100
+    },
+    "version": 22,
+    "cp": 7001,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "Daft Punk",
+      "tns": [
+       "蠢朋克乐队"
+      ],
+      "alias": [],
+      "id": 90513
+     },
+     {
+      "name": "Pharrell Williams",
+      "tns": [],
+      "alias": [],
+      "id": 41151
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 56,
+    "name": "Get Lucky (Daft Punk Remix)",
+    "mark": 17180139520
+   },
+   {
+    "no": 8,
+    "rt": "",
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3637252,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "vivid",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 2046700582,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "vivid",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "vivid",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 60.0,
+    "dt": 369684,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 2046700582,
+    "sq": {
+     "br": 1622158,
+     "fid": 0,
+     "size": 74960931,
+     "vd": -29798.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "01",
+    "publishTime": 1683820800000,
+    "cf": "",
+    "originCoverType": 1,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 14789529,
+     "vd": -29797.0,
+     "sr": 44100
+    },
+    "mv": 14333351,
+    "al": {
+     "picUrl": "http://p3.music.126.net/XA46RI585TxOxUe7QoqiJA==/109951168606360926.jpg",
+     "name": "Random Access Memories (10th Anniversary Edition)",
+     "tns": [],
+     "pic_str": "109951168606360926",
+     "id": 165455240,
+     "pic": 109951168606360926
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 5915838,
+     "vd": -25355.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 8873735,
+     "vd": -27192.0,
+     "sr": 44100
+    },
+    "version": 7,
+    "cp": 7001,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "Daft Punk",
+      "tns": [
+       "蠢朋克乐队"
+      ],
+      "alias": [],
+      "id": 90513
+     },
+     {
+      "name": "Pharrell Williams",
+      "tns": [],
+      "alias": [],
+      "id": 41151
+     },
+     {
+      "name": "Nile Rodgers",
+      "tns": [],
+      "alias": [],
+      "id": 69491
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 41,
+    "name": "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+    "mark": 17180139520
+   }
+  ],
+  "songCount": 327
+ },
+ "code": 200,
+ "trp": {
+  "rules": [
+   "search_tab_song::2046700582::searchAlg$isGlobalQuality$2",
+   "search_tab_song::26217522::searchAlg$isGlobalQuality$1",
+   "search_tab_song::26349642::searchAlg$isGlobalQuality$1"
+  ]
+ }
+}

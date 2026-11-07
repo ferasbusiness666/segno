@@ -1,0 +1,22 @@
+{
+ "code": -462,
+ "data": {
+  "actionCode": null,
+  "verifyType": 50,
+  "verifyId": 1008601,
+  "verifyUrl": "",
+  "blockText": "绑定手机后，可进行下一步操作哦~",
+  "verifyToken": null,
+  "btnText": "",
+  "orpheusUrl": "",
+  "frontRuleIds": null,
+  "params": {
+   "event_id": "00827200030242922503",
+   "sign": "efa2e7f730175e4fab95501a10039e1f"
+  },
+  "url": null,
+  "urlAutoOpen": 0,
+  "orpheusUrlParamAppend": null
+ },
+ "message": "请绑定手机后再试哦~"
+}

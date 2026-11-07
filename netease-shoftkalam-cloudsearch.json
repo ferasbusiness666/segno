@@ -1,0 +1,877 @@
+{
+ "result": {
+  "searchQcReminder": null,
+  "songs": [
+   {
+    "name": "Shoft Kalam",
+    "id": 3407079783,
+    "pst": 0,
+    "t": 0,
+    "ar": [
+     {
+      "id": 33602347,
+      "name": "Marwan Pablo",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 98443022,
+      "name": "Lege-Cy",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 99013582,
+      "name": "HatemBas",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "alia": [],
+    "pop": 5.0,
+    "st": 0,
+    "rt": "",
+    "fee": 1,
+    "v": 41,
+    "crbt": null,
+    "cf": "",
+    "al": {
+     "id": 387252587,
+     "name": "Shoft Kalam",
+     "picUrl": "http://p3.music.126.net/EPlLCHihh1e6X5W1MBzPcA==/109951173618862612.jpg",
+     "tns": [],
+     "pic_str": "109951173618862612",
+     "pic": 109951173618862612
+    },
+    "dt": 209491,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 8381805,
+     "vd": -48040.0,
+     "sr": 48000
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 5029101,
+     "vd": -45537.0,
+     "sr": 48000
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 3352749,
+     "vd": -44119.0,
+     "sr": 48000
+    },
+    "sq": {
+     "br": 1046307,
+     "fid": 0,
+     "size": 27402940,
+     "vd": -48018.0,
+     "sr": 48000
+    },
+    "hr": {
+     "br": 1814710,
+     "fid": 0,
+     "size": 47524676,
+     "vd": -48018.0,
+     "sr": 48000
+    },
+    "a": null,
+    "cd": "01",
+    "no": 1,
+    "rtUrl": null,
+    "ftype": 0,
+    "rtUrls": [],
+    "djId": 0,
+    "copyright": 1,
+    "s_id": 0,
+    "mark": 537141248,
+    "originCoverType": 1,
+    "originSongSimpleData": null,
+    "tagPicList": null,
+    "resourceState": true,
+    "version": 7,
+    "songJumpInfo": null,
+    "entertainmentTags": null,
+    "single": 0,
+    "noCopyrightRcmd": null,
+    "rtype": 0,
+    "rurl": null,
+    "mst": 9,
+    "cp": 1416336,
+    "mv": 0,
+    "publishTime": 1784131200000,
+    "privilege": {
+     "id": 3407079783,
+     "fee": 0,
+     "payed": 0,
+     "st": -100,
+     "pl": 0,
+     "dl": 0,
+     "sp": 7,
+     "cp": 0,
+     "subp": 1,
+     "cs": false,
+     "maxbr": 999000,
+     "fl": 0,
+     "toast": false,
+     "flag": 3641348,
+     "preSell": false,
+     "playMaxbr": 999000,
+     "downloadMaxbr": 999000,
+     "maxBrLevel": "vivid",
+     "playMaxBrLevel": "vivid",
+     "downloadMaxBrLevel": "vivid",
+     "plLevel": "none",
+     "dlLevel": "none",
+     "flLevel": "none",
+     "rscl": 0,
+     "freeTrialPrivilege": {
+      "resConsumable": true,
+      "userConsumable": false,
+      "listenType": null,
+      "cannotListenReason": 1,
+      "playReason": null,
+      "freeLimitTagType": null
+     },
+     "rightSource": 0,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 1999000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      }
+     ],
+     "code": 0,
+     "message": null,
+     "plLevels": null,
+     "dlLevels": null,
+     "ignoreCache": null,
+     "bd": null
+    }
+   },
+   {
+    "name": "Tarantino",
+    "id": 1982057693,
+    "pst": 0,
+    "t": 0,
+    "ar": [
+     {
+      "id": 12838152,
+      "name": "Cairokee",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 33602347,
+      "name": "Marwan Pablo",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "alia": [],
+    "pop": 10.0,
+    "st": 0,
+    "rt": "",
+    "fee": 1,
+    "v": 38,
+    "crbt": null,
+    "cf": "",
+    "al": {
+     "id": 151748119,
+     "name": "Roma",
+     "picUrl": "http://p4.music.126.net/Mt9MQxg0j4VYnq03nH2aLA==/109951167883797904.jpg",
+     "tns": [],
+     "pic_str": "109951167883797904",
+     "pic": 109951167883797904
+    },
+    "dt": 182096,
+    "h": {
+     "br": 320002,
+     "fid": 0,
+     "size": 7286445,
+     "vd": -49808.0,
+     "sr": 48000
+    },
+    "m": {
+     "br": 192002,
+     "fid": 0,
+     "size": 4371885,
+     "vd": -47222.0,
+     "sr": 48000
+    },
+    "l": {
+     "br": 128002,
+     "fid": 0,
+     "size": 2914605,
+     "vd": -45598.0,
+     "sr": 48000
+    },
+    "sq": {
+     "br": 986174,
+     "fid": 0,
+     "size": 22447385,
+     "vd": -49840.0,
+     "sr": 48000
+    },
+    "hr": {
+     "br": 1755813,
+     "fid": 0,
+     "size": 39965964,
+     "vd": -49803.0,
+     "sr": 48000
+    },
+    "a": null,
+    "cd": "01",
+    "no": 3,
+    "rtUrl": null,
+    "ftype": 0,
+    "rtUrls": [],
+    "djId": 0,
+    "copyright": 1,
+    "s_id": 0,
+    "mark": 537665536,
+    "originCoverType": 0,
+    "originSongSimpleData": null,
+    "tagPicList": null,
+    "resourceState": true,
+    "version": 4,
+    "songJumpInfo": null,
+    "entertainmentTags": null,
+    "single": 0,
+    "noCopyrightRcmd": null,
+    "rtype": 0,
+    "rurl": null,
+    "mst": 9,
+    "cp": 1416336,
+    "mv": 0,
+    "publishTime": 1663862400000,
+    "privilege": {
+     "id": 1982057693,
+     "fee": 0,
+     "payed": 0,
+     "st": -100,
+     "pl": 0,
+     "dl": 0,
+     "sp": 7,
+     "cp": 0,
+     "subp": 1,
+     "cs": false,
+     "maxbr": 999000,
+     "fl": 0,
+     "toast": false,
+     "flag": 1282052,
+     "preSell": false,
+     "playMaxbr": 999000,
+     "downloadMaxbr": 999000,
+     "maxBrLevel": "jymaster",
+     "playMaxBrLevel": "jymaster",
+     "downloadMaxBrLevel": "jymaster",
+     "plLevel": "none",
+     "dlLevel": "none",
+     "flLevel": "none",
+     "rscl": 0,
+     "freeTrialPrivilege": {
+      "resConsumable": true,
+      "userConsumable": false,
+      "listenType": null,
+      "cannotListenReason": 1,
+      "playReason": null,
+      "freeLimitTagType": null
+     },
+     "rightSource": 0,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      },
+      {
+       "rate": 1999000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      }
+     ],
+     "code": 0,
+     "message": null,
+     "plLevels": null,
+     "dlLevels": null,
+     "ignoreCache": null,
+     "bd": null
+    }
+   },
+   {
+    "name": "North Spicy",
+    "id": 2027062745,
+    "pst": 0,
+    "t": 0,
+    "ar": [
+     {
+      "id": 46903714,
+      "name": "North Spicy",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 34650702,
+      "name": "Moha k",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 33602347,
+      "name": "Marwan Pablo",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 30364285,
+      "name": "ElGrandeToto",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 28370665,
+      "name": "Inkonnu",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 15283604,
+      "name": "Marwa Loud",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 33087374,
+      "name": "Wegz",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 11981037,
+      "name": "Saad Lamjarred",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 33012839,
+      "name": "Mohamed Ramadan",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 12593571,
+      "name": "Soolking",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 230076,
+      "name": "Jul",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "alia": [],
+    "pop": 10.0,
+    "st": 0,
+    "rt": "",
+    "fee": 8,
+    "v": 36,
+    "crbt": null,
+    "cf": "",
+    "al": {
+     "id": 161115751,
+     "name": "North Spicy",
+     "picUrl": "http://p4.music.126.net/vAtCIkrop7_jhr5qaeZi-w==/109951168439393773.jpg",
+     "tns": [],
+     "pic_str": "109951168439393773",
+     "pic": 109951168439393773
+    },
+    "dt": 163829,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 6555733,
+     "vd": 4425.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 3933457,
+     "vd": 6981.0,
+     "sr": 44100
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 2622319,
+     "vd": 8634.0,
+     "sr": 44100
+    },
+    "sq": {
+     "br": 1646452,
+     "fid": 0,
+     "size": 33717114,
+     "vd": 4436.0,
+     "sr": 44100
+    },
+    "hr": null,
+    "a": null,
+    "cd": "01",
+    "no": 1,
+    "rtUrl": null,
+    "ftype": 0,
+    "rtUrls": [],
+    "djId": 0,
+    "copyright": 1,
+    "s_id": 0,
+    "mark": 270464,
+    "originCoverType": 0,
+    "originSongSimpleData": null,
+    "tagPicList": null,
+    "resourceState": true,
+    "version": 2,
+    "songJumpInfo": null,
+    "entertainmentTags": null,
+    "single": 0,
+    "noCopyrightRcmd": null,
+    "rtype": 0,
+    "rurl": null,
+    "mst": 9,
+    "cp": 743010,
+    "mv": 0,
+    "publishTime": 1653580800000,
+    "privilege": {
+     "id": 2027062745,
+     "fee": 0,
+     "payed": 0,
+     "st": -100,
+     "pl": 0,
+     "dl": 0,
+     "sp": 7,
+     "cp": 1,
+     "subp": 1,
+     "cs": false,
+     "maxbr": 999000,
+     "fl": 0,
+     "toast": false,
+     "flag": 3375365,
+     "preSell": false,
+     "playMaxbr": 999000,
+     "downloadMaxbr": 999000,
+     "maxBrLevel": "vivid",
+     "playMaxBrLevel": "vivid",
+     "downloadMaxBrLevel": "vivid",
+     "plLevel": "none",
+     "dlLevel": "none",
+     "flLevel": "none",
+     "rscl": 0,
+     "freeTrialPrivilege": {
+      "resConsumable": false,
+      "userConsumable": false,
+      "listenType": null,
+      "cannotListenReason": 1,
+      "playReason": null,
+      "freeLimitTagType": null
+     },
+     "rightSource": 0,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 192000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 320000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 999000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      }
+     ],
+     "code": 0,
+     "message": null,
+     "plLevels": null,
+     "dlLevels": null,
+     "ignoreCache": null,
+     "bd": null
+    }
+   },
+   {
+    "name": "Scania",
+    "id": 1414903836,
+    "pst": 0,
+    "t": 0,
+    "ar": [
+     {
+      "id": 34140292,
+      "name": "ZerOne",
+      "tns": [],
+      "alias": []
+     },
+     {
+      "id": 33602347,
+      "name": "Marwan Pablo",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "alia": [],
+    "pop": 5.0,
+    "st": 0,
+    "rt": "",
+    "fee": 8,
+    "v": 39,
+    "crbt": null,
+    "cf": "",
+    "al": {
+     "id": 84793518,
+     "name": "Folan",
+     "picUrl": "http://p4.music.126.net/mlVcMyeU4dk7M-oTBNtTyw==/109951164608966985.jpg",
+     "tns": [],
+     "pic_str": "109951164608966985",
+     "pic": 109951164608966985
+    },
+    "dt": 200059,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 8005007,
+     "vd": -48995.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 4803022,
+     "vd": -46407.0,
+     "sr": 44100
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 3202029,
+     "vd": -44784.0,
+     "sr": 44100
+    },
+    "sq": {
+     "br": 1415000,
+     "fid": 0,
+     "size": 20249803,
+     "vd": -49005.0,
+     "sr": 44100
+    },
+    "hr": null,
+    "a": null,
+    "cd": "01",
+    "no": 2,
+    "rtUrl": null,
+    "ftype": 0,
+    "rtUrls": [],
+    "djId": 0,
+    "copyright": 1,
+    "s_id": 0,
+    "mark": 270336,
+    "originCoverType": 0,
+    "originSongSimpleData": null,
+    "tagPicList": null,
+    "resourceState": true,
+    "version": 5,
+    "songJumpInfo": null,
+    "entertainmentTags": null,
+    "single": 0,
+    "noCopyrightRcmd": null,
+    "rtype": 0,
+    "rurl": null,
+    "mst": 9,
+    "cp": 1416074,
+    "mv": 0,
+    "publishTime": 1546272000000,
+    "privilege": {
+     "id": 1414903836,
+     "fee": 0,
+     "payed": 0,
+     "st": -100,
+     "pl": 0,
+     "dl": 0,
+     "sp": 7,
+     "cp": 1,
+     "subp": 1,
+     "cs": false,
+     "maxbr": 999000,
+     "fl": 0,
+     "toast": false,
+     "flag": 3637252,
+     "preSell": false,
+     "playMaxbr": 999000,
+     "downloadMaxbr": 999000,
+     "maxBrLevel": "vivid",
+     "playMaxBrLevel": "vivid",
+     "downloadMaxBrLevel": "vivid",
+     "plLevel": "none",
+     "dlLevel": "none",
+     "flLevel": "none",
+     "rscl": 0,
+     "freeTrialPrivilege": {
+      "resConsumable": false,
+      "userConsumable": false,
+      "listenType": null,
+      "cannotListenReason": 1,
+      "playReason": null,
+      "freeLimitTagType": null
+     },
+     "rightSource": 0,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 192000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 320000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 999000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      }
+     ],
+     "code": 0,
+     "message": null,
+     "plLevels": null,
+     "dlLevels": null,
+     "ignoreCache": null,
+     "bd": null
+    }
+   },
+   {
+    "name": "CTRL",
+    "id": 1837256039,
+    "pst": 0,
+    "t": 0,
+    "ar": [
+     {
+      "id": 33602347,
+      "name": "Marwan Pablo",
+      "tns": [],
+      "alias": []
+     }
+    ],
+    "alia": [],
+    "pop": 10.0,
+    "st": 0,
+    "rt": "",
+    "fee": 0,
+    "v": 38,
+    "crbt": null,
+    "cf": "",
+    "al": {
+     "id": 125973744,
+     "name": "CTRL",
+     "picUrl": "http://p3.music.126.net/csaUpzh9CX42Qs1Q5Jg0vw==/109951165889809788.jpg",
+     "tns": [],
+     "pic_str": "109951165889809788",
+     "pic": 109951165889809788
+    },
+    "dt": 185341,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 7416729,
+     "vd": 7698.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 4450055,
+     "vd": 10248.0,
+     "sr": 44100
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 2966718,
+     "vd": 11759.0,
+     "sr": 44100
+    },
+    "sq": {
+     "br": 780510,
+     "fid": 0,
+     "size": 18082651,
+     "vd": 7758.0,
+     "sr": 44100
+    },
+    "hr": null,
+    "a": null,
+    "cd": "01",
+    "no": 3,
+    "rtUrl": null,
+    "ftype": 0,
+    "rtUrls": [],
+    "djId": 0,
+    "copyright": 0,
+    "s_id": 0,
+    "mark": 262272,
+    "originCoverType": 0,
+    "originSongSimpleData": null,
+    "tagPicList": null,
+    "resourceState": true,
+    "version": 4,
+    "songJumpInfo": null,
+    "entertainmentTags": null,
+    "single": 0,
+    "noCopyrightRcmd": null,
+    "rtype": 0,
+    "rurl": null,
+    "mst": 9,
+    "cp": 0,
+    "mv": 0,
+    "publishTime": 0,
+    "privilege": {
+     "id": 1837256039,
+     "fee": 0,
+     "payed": 0,
+     "st": -100,
+     "pl": 0,
+     "dl": 0,
+     "sp": 7,
+     "cp": 1,
+     "subp": 1,
+     "cs": false,
+     "maxbr": 999000,
+     "fl": 0,
+     "toast": false,
+     "flag": 3637505,
+     "preSell": false,
+     "playMaxbr": 999000,
+     "downloadMaxbr": 999000,
+     "maxBrLevel": "vivid",
+     "playMaxBrLevel": "vivid",
+     "downloadMaxBrLevel": "vivid",
+     "plLevel": "none",
+     "dlLevel": "none",
+     "flLevel": "none",
+     "rscl": 0,
+     "freeTrialPrivilege": {
+      "resConsumable": false,
+      "userConsumable": false,
+      "listenType": null,
+      "cannotListenReason": 1,
+      "playReason": null,
+      "freeLimitTagType": null
+     },
+     "rightSource": 0,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 192000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 320000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 0
+      },
+      {
+       "rate": 999000,
+       "chargeUrl": null,
+       "chargeMessage": null,
+       "chargeType": 1
+      }
+     ],
+     "code": 0,
+     "message": null,
+     "plLevels": null,
+     "dlLevels": null,
+     "ignoreCache": null,
+     "bd": null
+    }
+   }
+  ],
+  "songCount": 146
+ },
+ "code": 200
+}

@@ -1,0 +1,132 @@
+
+=== getlucky: daft punk get lucky
+  search songs: 20 rows
+    4D7u5KF7SP8 | Get Lucky (feat. Pharrell Williams and Nile Rodgers) | Daft Punk, Pharrell Williams & Nile Rodgers • Random Access Memories • 6:10 | 1.9B plays
+    Rgrt_8mXrK8 | Get Lucky (Radio Edit - feat. Pharrell Williams and Nile Rodgers) | Daft Punk, Pharrell Williams & Nile Rodgers • Get Lucky (Radio Edit - feat. Pharrell Williams and Nile Rodgers) • 4:09 | 1.9B plays
+    JhulBGMA7G4 | Harder, Better, Faster, Stronger | Daft Punk • Discovery • 3:47 | 400M plays
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_K8qWMWVqXGi-8
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_K8qWMWVqXGi-8
+    first in queue: 4D7u5KF7SP8 Get Lucky (feat. Pharrell Williams and Nile Rodgers) | Daft Punk, Pharrell Williams & Nile Rodgers • Random Access Memories • 2013 | 6:10 | ['MUSIC_VIDEO_TYPE_ATV']
+    lyrics mobile: TIMED 109 lines; first: '♪' {'startTimeMilliseconds': '0', 'endTimeMilliseconds': '30000', 'metadata': {'id': '0'}}
+    lyrics web: plain, 3596 chars; footer: Source: LyricFind
+  search videos: 20 rows
+    5NV6Rdv1a3I | Get Lucky (Official Audio) (feat. Pharrell Williams & Nile Rodgers) | Daft Punk • 884M views • 4:09
+    CCHdMIEGaaM | Daft Punk - Get Lucky (Official Video) feat. Pharrell Williams and Nile Rodgers | convar HUN • 59M views • 4:08
+    g7q-OItcRfw | Daft Punk Get Lucky Lyrics | when • 719K views • 0:18
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_dYXkoPsE0o6
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_dYXkoPsE0o6
+    first in queue: 5NV6Rdv1a3I Get Lucky (Official Audio) (feat. Pharrell Williams & Nile Rodgers) | Daft Punk • 884M views • 5.4M likes | 4:09 | ['MUSIC_VIDEO_TYPE_OMV']
+    lyrics mobile: TIMED 77 lines; first: 'Like the legend of the phoenix, huh' None
+    lyrics web: plain, 2273 chars; footer: Source: Musixmatch
+
+=== thickofit: ksi thick of it
+  search songs: 20 rows
+    M1xBYPSsDA0 | Thick Of It (feat. Trippie Redd) | KSI • Thick Of It / Low • 2:41 | 194M plays
+    cXgXxe-l0EI | No Time (feat. Lil Durk) | KSI • All over the Place (Platinum VIP Edition) • 3:01 | 24M plays
+    0TD2ei9LzxY | Catch Me If You Can | KSI • Catch Me If You Can / So Far Away • 2:48 | 3.3M plays
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_6lZH4bVX9mz-1
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_6lZH4bVX9mz-1
+    first in queue: M1xBYPSsDA0 Thick Of It (feat. Trippie Redd) | KSI • Thick Of It / Low • 2024 | 2:41 | ['MUSIC_VIDEO_TYPE_ATV']
+    lyrics mobile: TIMED 47 lines; first: "I'm in the thick of it, everybody knows" {'startTimeMilliseconds': '1110', 'endTimeMilliseconds': '4030', 'metadata': {'id': '0'}}
+    lyrics web: plain, 2152 chars; footer: Source: LyricFind
+  search videos: 20 rows
+    At8v_Yc044Y | Thick Of It [Sped up] (feat. Trippie Redd) | KSI • 137M views • 2:57
+    lZODTTH32j0 | KSI - Thick Of It (Lyrics Video) ft. Trippie Redd | Cakes & Eclairs • 90K views • 2:46
+    vTgWARAcl8o | KSI - Thick Of It, but only Trippie Redd's part... | CJMOTORTV • 16K views • 0:27
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_vEqTsBIcror
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_vEqTsBIcror
+    first in queue: At8v_Yc044Y Thick Of It [Sped up] (feat. Trippie Redd) | KSI • 137M views • 1.8M likes | 2:57 | ['MUSIC_VIDEO_TYPE_OMV']
+    lyrics mobile: TIMED 46 lines; first: "I'm in the thick of it, everybody knows" None
+    lyrics web: plain, 2086 chars; footer: Source: Musixmatch
+
+=== shoftkalam: marwan pablo shoft kalam
+  search songs: 20 rows
+    qp7U1B3bdEA | Shoft Kalam | Marwan Pablo, Lege-Cy & HatemBas • Shoft Kalam • 3:30 | 58M plays
+    s7FeIZvNOfs | عايش | ريد بُل مزيكا صالونات | Marwan Pablo, Hesham Nazih & Red Bull Sika • عايش | ريد بُل مزيكا صالونات • 3:13 | 1.5M plays
+    Lqvv7qhRft8 | Garee2a Awy - A COLORS SHOW | TUL8TE & COLORS • Garee2a Awy - A COLORS SHOW • 2:39 | 146M plays
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_yhPaZTg5pz8-1
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_yhPaZTg5pz8-1
+    first in queue: qp7U1B3bdEA Shoft Kalam | Marwan Pablo, Lege-Cy & HatemBas • Shoft Kalam • 2026 | 3:30 | ['MUSIC_VIDEO_TYPE_ATV']
+    lyrics mobile: none; keys ['responseContext', 'contents', 'trackingParams', 'frameworkUpdates']
+    lyrics web: none; keys ['responseContext', 'contents', 'trackingParams']
+  search videos: 20 rows
+    CCRxEbi75iE | Shoft Kalam | Marwan Pablo, Lege-Cy & Hatem • 44M views • 3:30
+    M2Navmf7jeU | شوفت كلام في رمشك// Marwan Pablo, Lege-Cy & HatemBas || SHOFT KALAM - | 𝐒𝐡𝐞𝐫𝐢𝐟_ْشِرِيــــف • 527K views • 3:30
+    RpEobnpYhgk | SHOFT KALAM - MARWANPABLO x LEGE-CY x HATEMBASشفت كلام - مروان بابلو و |ليجي - سي و حاتم بس | مروان بابلو • 28 views • 3:30
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_Mo40rN0gffj
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_Mo40rN0gffj
+    first in queue: CCRxEbi75iE Shoft Kalam | Marwan Pablo, Lege-Cy & Hatem • 44M views • 208K likes | 3:30 | ['MUSIC_VIDEO_TYPE_OMV']
+    lyrics mobile: none; keys ['responseContext', 'contents', 'trackingParams', 'frameworkUpdates']
+    lyrics web: none; keys ['responseContext', 'contents', 'trackingParams']
+
+=== blindinglights: the weeknd blinding lights
+  search songs: 20 rows
+    J7p4bzqLvCw | Blinding Lights | The Weeknd • Blinding Lights • 3:22 | 3.7B plays
+    tEeK40cjmkw | Save Your Tears | The Weeknd • After Hours • 3:36 | 3.4B plays
+    qPRNIHxLhmc | I Feel It Coming (feat. Daft Punk) | The Weeknd • Starboy • 4:30 | 2.1B plays
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_4U7yfKKFZLv-1
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_4U7yfKKFZLv-1
+    first in queue: J7p4bzqLvCw Blinding Lights | The Weeknd • Blinding Lights • 2019 | 3:22 | ['MUSIC_VIDEO_TYPE_ATV']
+    lyrics mobile: TIMED 39 lines; first: '♪' {'startTimeMilliseconds': '0', 'endTimeMilliseconds': '13530', 'metadata': {'id': '0'}}
+    lyrics web: plain, 1253 chars; footer: Source: Musixmatch
+  search videos: 20 rows
+    4NRXx6U8ABQ | Blinding Lights (Official Video) | The Weeknd • 1B views • 4:23
+    fHI8X4OXluQ | Blinding Lights (Official Audio) | The Weeknd • 884M views • 3:24
+    ozSQPSnQOSQ | The Weeknd "Blinding Lights" (Music Video) | Pop Stars Inc. • 25M views • 3:24
+    tab Up next: None None
+    tab Lyrics: MUSIC_PAGE_TYPE_TRACK_LYRICS MPLYt_N5NW2TNNsYa
+    tab Comments: None None
+    tab Related: MUSIC_PAGE_TYPE_TRACK_RELATED MPTRt_N5NW2TNNsYa
+    first in queue: 4NRXx6U8ABQ Blinding Lights (Official Video) | The Weeknd • 1B views • 11M likes | 4:23 | ['MUSIC_VIDEO_TYPE_OMV']
+    lyrics mobile: TIMED 35 lines; first: 'Yeah' None
+    lyrics web: plain, 1253 chars; footer: Source: Musixmatch
+
+=== NetEase getlucky: get lucky daft punk
+  get: code 200, result is dict, 5 songs
+    26349642 | Get Lucky | Daft Punk, Pharrell Williams, Nile Rodgers | 369684 ms
+    26217522 | Get Lucky (Radio Edit) | Daft Punk, Pharrell Williams | 248430 ms
+    420480815 | Get Lucky (Radio Edit) | Nile Rodgers, Pharrell Williams, Daft Punk | 248476 ms
+  cloudsearch: code 200, result is dict, 5 songs
+    26349642 | Get Lucky | Daft Punk, Pharrell Williams, Nile Rodgers | 369684 ms
+    26217522 | Get Lucky (Radio Edit) | Daft Punk, Pharrell Williams | 248430 ms
+    420480815 | Get Lucky (Radio Edit) | Nile Rodgers, Pharrell Williams, Daft Punk | 248476 ms
+  search/pc: code -462, result is NoneType, 0 songs
+  lyric: code 200, 120 lines; starts '[00:00.000] 作曲 : Pharrell Williams/Nile Rodgers/Thomas Bangalter/Guy-Manuel de H'
+
+=== NetEase blindinglights: blinding lights the weeknd
+  get: code 200, result is dict, 5 songs
+    1406633327 | Blinding Lights | The Weeknd | 200045 ms
+    1930178116 | Blinding Lights | The Weeknd | 200045 ms
+    2027162148 | Blinding Lights (Live) | The Weeknd | 253365 ms
+  cloudsearch: code 200, result is dict, 5 songs
+    1406633327 | Blinding Lights | The Weeknd | 200045 ms
+    1930178116 | Blinding Lights | The Weeknd | 200045 ms
+    2027162148 | Blinding Lights (Live) | The Weeknd | 253365 ms
+  search/pc: code -462, result is NoneType, 0 songs
+  lyric: code 200, 47 lines; starts '[00:00.000] 制作人 : The Weeknd/Max Martin/Oscar Holter/Abel Tesfaye\n[00:01.000] 作词'
+
+=== NetEase shoftkalam: marwan pablo
+  get: code 200, result is dict, 5 songs
+    3407079783 | Shoft Kalam | Marwan Pablo, Lege-Cy, HatemBas | 209491 ms
+    1982057693 | Tarantino | Cairokee, Marwan Pablo | 182096 ms
+    2027062745 | North Spicy | North Spicy, Moha k, Marwan Pablo, ElGrandeToto, Inkonnu, Marwa Loud, Wegz, Saad Lamjarred, Mohamed Ramadan, Soolking, Jul | 163829 ms
+  cloudsearch: code 200, result is dict, 5 songs
+    3407079783 | Shoft Kalam | Marwan Pablo, Lege-Cy, HatemBas | 209491 ms
+    1982057693 | Tarantino | Cairokee, Marwan Pablo | 182096 ms
+    2027062745 | North Spicy | North Spicy, Moha k, Marwan Pablo, ElGrandeToto, Inkonnu, Marwa Loud, Wegz, Saad Lamjarred, Mohamed Ramadan, Soolking, Jul | 163829 ms
+  search/pc: code -462, result is NoneType, 0 songs
+  lyric: code 200, 52 lines; starts '[00:00.000] 作曲 : Marwan Pablo/Lege-Cy\n[00:00.585]\n[00:04.945]حاتم، حاتم، بس\n[00:'

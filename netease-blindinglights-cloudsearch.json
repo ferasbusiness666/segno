@@ -1,0 +1,679 @@
+{
+ "result": {
+  "songs": [
+   {
+    "no": 1,
+    "rt": "",
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3653636,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "dolby",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 1406633327,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "dolby",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "dolby",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 100.0,
+    "dt": 200045,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 1406633327,
+    "sq": {
+     "br": 934470,
+     "fid": 0,
+     "size": 23367106,
+     "vd": -56188.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "01",
+    "publishTime": 1599753600000,
+    "cf": "",
+    "originCoverType": 1,
+    "h": {
+     "br": 320002,
+     "fid": 0,
+     "size": 8005007,
+     "vd": -56010.0,
+     "sr": 44100
+    },
+    "mv": 10913109,
+    "al": {
+     "picUrl": "http://p4.music.126.net/N-bKreSjAKtuY7bHm5hwzw==/109951165370121751.jpg",
+     "name": "Blinding Lights",
+     "tns": [],
+     "pic_str": "109951165370121751",
+     "id": 83768303,
+     "pic": 109951165370121751
+    },
+    "l": {
+     "br": 128002,
+     "fid": 0,
+     "size": 3202029,
+     "vd": -51844.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192002,
+     "fid": 0,
+     "size": 4803022,
+     "vd": -53415.0,
+     "sr": 44100
+    },
+    "version": 17,
+    "cp": 7003,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "The Weeknd",
+      "tns": [
+       "威肯"
+      ],
+      "alias": [],
+      "id": 185858
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 51,
+    "name": "Blinding Lights",
+    "mark": 17180139520
+   },
+   {
+    "no": 9,
+    "rt": "",
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3653636,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "dolby",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 1930178116,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "dolby",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "dolby",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 90.0,
+    "dt": 200045,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 1930178116,
+    "sq": {
+     "br": 933178,
+     "fid": 0,
+     "size": 23334799,
+     "vd": -56081.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "01",
+    "publishTime": 1584633600000,
+    "cf": "",
+    "originCoverType": 1,
+    "h": {
+     "br": 320002,
+     "fid": 0,
+     "size": 8005007,
+     "vd": -56002.0,
+     "sr": 44100
+    },
+    "mv": 0,
+    "al": {
+     "picUrl": "http://p4.music.126.net/zazQV-xfAlOcZBvZeh2RqQ==/109951173368778796.jpg",
+     "name": "After Hours (Deluxe)",
+     "tns": [],
+     "pic_str": "109951173368778796",
+     "id": 142157338,
+     "pic": 109951173368778796
+    },
+    "l": {
+     "br": 128002,
+     "fid": 0,
+     "size": 3202029,
+     "vd": -51818.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192002,
+     "fid": 0,
+     "size": 4803022,
+     "vd": -53409.0,
+     "sr": 44100
+    },
+    "version": 7,
+    "cp": 7003,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "The Weeknd",
+      "tns": [
+       "威肯"
+      ],
+      "alias": [],
+      "id": 185858
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 41,
+    "name": "Blinding Lights",
+    "mark": 17180139520
+   },
+   {
+    "no": 30,
+    "rt": "",
+    "copyright": 1,
+    "fee": 1,
+    "hr": {
+     "br": 1829229,
+     "fid": 0,
+     "size": 57932928,
+     "vd": -46610.0,
+     "sr": 48000
+    },
+    "privilege": {
+     "flag": 3657732,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "dolby",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 2027162148,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      },
+      {
+       "rate": 1999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "dolby",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "dolby",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 90.0,
+    "dt": 253365,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 2027162148,
+    "sq": {
+     "br": 1059099,
+     "fid": 0,
+     "size": 33542380,
+     "vd": -46622.0,
+     "sr": 48000
+    },
+    "st": 0,
+    "cd": "01",
+    "publishTime": 1677772800000,
+    "cf": "",
+    "originCoverType": 0,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 10136685,
+     "vd": -46574.0,
+     "sr": 48000
+    },
+    "mv": 0,
+    "al": {
+     "picUrl": "http://p4.music.126.net/WWfse0EGdglvf20DFUW_8g==/109951168439801358.jpg",
+     "name": "After Hours (Live At SoFi Stadium)",
+     "tns": [],
+     "pic_str": "109951168439801358",
+     "id": 161174701,
+     "pic": 109951168439801358
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 4054701,
+     "vd": -42473.0,
+     "sr": 48000
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 6082029,
+     "vd": -44010.0,
+     "sr": 48000
+    },
+    "version": 11,
+    "cp": 7003,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "The Weeknd",
+      "tns": [
+       "威肯"
+      ],
+      "alias": [],
+      "id": 185858
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 45,
+    "name": "Blinding Lights (Live)",
+    "mark": 17718059008
+   },
+   {
+    "no": 18,
+    "rt": "",
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3637252,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "vivid",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 1433196365,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "vivid",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "vivid",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 60.0,
+    "dt": 261276,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 1433196365,
+    "sq": {
+     "br": 977562,
+     "fid": 0,
+     "size": 31922184,
+     "vd": -49188.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "01",
+    "publishTime": 1584892800000,
+    "cf": "",
+    "originCoverType": 0,
+    "h": {
+     "br": 320000,
+     "fid": 0,
+     "size": 10452158,
+     "vd": -49108.0,
+     "sr": 44100
+    },
+    "mv": 0,
+    "al": {
+     "picUrl": "http://p3.music.126.net/U9yfkSDBBj9I8Xrd3EprZQ==/109951173691750772.jpg",
+     "name": "After Hours (Deluxe)",
+     "tns": [],
+     "pic_str": "109951173691750772",
+     "id": 86755720,
+     "pic": 109951173691750772
+    },
+    "l": {
+     "br": 128000,
+     "fid": 0,
+     "size": 4180889,
+     "vd": -45036.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192000,
+     "fid": 0,
+     "size": 6271312,
+     "vd": -46563.0,
+     "sr": 44100
+    },
+    "version": 20,
+    "cp": 7003,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "The Weeknd",
+      "tns": [
+       "威肯"
+      ],
+      "alias": [],
+      "id": 185858
+     },
+     {
+      "name": "Chromatics",
+      "tns": [],
+      "alias": [],
+      "id": 89463
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 54,
+    "name": "Blinding Lights (Chromatics Remix)",
+    "mark": 17180139520
+   },
+   {
+    "no": 1,
+    "rt": "",
+    "copyright": 1,
+    "fee": 1,
+    "privilege": {
+     "flag": 3653636,
+     "code": 0,
+     "dlLevel": "none",
+     "subp": 1,
+     "fl": 0,
+     "fee": 0,
+     "dl": 0,
+     "plLevel": "none",
+     "maxBrLevel": "dolby",
+     "rightSource": 0,
+     "maxbr": 999000,
+     "id": 1500412585,
+     "sp": 7,
+     "payed": 0,
+     "rscl": 0,
+     "st": -100,
+     "chargeInfoList": [
+      {
+       "rate": 128000,
+       "chargeType": 1
+      },
+      {
+       "rate": 192000,
+       "chargeType": 1
+      },
+      {
+       "rate": 320000,
+       "chargeType": 1
+      },
+      {
+       "rate": 999000,
+       "chargeType": 1
+      }
+     ],
+     "freeTrialPrivilege": {
+      "userConsumable": false,
+      "resConsumable": true,
+      "cannotListenReason": 1
+     },
+     "downloadMaxbr": 999000,
+     "downloadMaxBrLevel": "dolby",
+     "cp": 0,
+     "preSell": false,
+     "playMaxBrLevel": "dolby",
+     "cs": false,
+     "toast": false,
+     "playMaxbr": 999000,
+     "flLevel": "none",
+     "pl": 0
+    },
+    "mst": 9,
+    "pst": 0,
+    "pop": 70.0,
+    "dt": 216123,
+    "rtype": 0,
+    "s_id": 0,
+    "rtUrls": [],
+    "resourceState": true,
+    "id": 1500412585,
+    "sq": {
+     "br": 913585,
+     "fid": 0,
+     "size": 24680848,
+     "vd": -54885.0,
+     "sr": 44100
+    },
+    "st": 0,
+    "cd": "01",
+    "publishTime": 1607011200000,
+    "cf": "",
+    "originCoverType": 0,
+    "h": {
+     "br": 320002,
+     "fid": 0,
+     "size": 8647619,
+     "vd": -54890.0,
+     "sr": 44100
+    },
+    "mv": 10979752,
+    "al": {
+     "picUrl": "http://p3.music.126.net/JbCD9LByy3ZjWorFCEhsVQ==/109951165517366346.jpg",
+     "name": "Blinding Lights (Remix)",
+     "tns": [],
+     "pic_str": "109951165517366346",
+     "id": 99131899,
+     "pic": 109951165517366346
+    },
+    "l": {
+     "br": 128002,
+     "fid": 0,
+     "size": 3459074,
+     "vd": -50708.0,
+     "sr": 44100
+    },
+    "m": {
+     "br": 192002,
+     "fid": 0,
+     "size": 5188589,
+     "vd": -52300.0,
+     "sr": 44100
+    },
+    "version": 9,
+    "cp": 7003,
+    "alia": [],
+    "djId": 0,
+    "single": 0,
+    "ar": [
+     {
+      "name": "The Weeknd",
+      "tns": [
+       "威肯"
+      ],
+      "alias": [],
+      "id": 185858
+     },
+     {
+      "name": "ROSALÍA",
+      "tns": [],
+      "alias": [],
+      "id": 320153
+     }
+    ],
+    "ftype": 0,
+    "t": 0,
+    "v": 43,
+    "name": "Blinding Lights (Remix)",
+    "mark": 17180139520
+   }
+  ],
+  "songCount": 333
+ },
+ "code": 200,
+ "trp": {
+  "rules": [
+   "search_tab_song::1406633327::searchAlg$isGlobalQuality$1",
+   "search_tab_song::2027162148::searchAlg$isGlobalQuality$1",
+   "search_tab_song::1930178116::searchAlg$isGlobalQuality$1",
+   "search_tab_song::1433196365::searchAlg$isGlobalQuality$1"
+  ]
+ }
+}

@@ -1,0 +1,100 @@
+{
+ "responseContext": {
+  "visitorData": "CgtZNEpLNlVjVzhwWSjkhb3XBjIKCgJVUxIEGgAgTQ%3D%3D",
+  "serviceTrackingParams": [
+   {
+    "service": "GFEEDBACK",
+    "params": [
+     {
+      "key": "browse_id",
+      "value": "MPLYt_dYXkoPsE0o6"
+     },
+     {
+      "key": "browse_id_prefix",
+      "value": ""
+     },
+     {
+      "key": "has_unlimited_entitlement",
+      "value": "False"
+     },
+     {
+      "key": "logged_in",
+      "value": "0"
+     }
+    ]
+   },
+   {
+    "service": "CSI",
+    "params": [
+     {
+      "key": "c",
+      "value": "WEB_REMIX"
+     },
+     {
+      "key": "cver",
+      "value": "1.20261107.01.00"
+     },
+     {
+      "key": "yt_li",
+      "value": "0"
+     },
+     {
+      "key": "GetBrowseTrackLyricsPage_rid",
+      "value": "0x1915c1795825af71"
+     }
+    ]
+   },
+   {
+    "service": "ECATCHER",
+    "params": [
+     {
+      "key": "client.version",
+      "value": "1.20000101"
+     },
+     {
+      "key": "client.name",
+      "value": "WEB_REMIX"
+     }
+    ]
+   }
+  ],
+  "responseId": "IhMIzd3Es5X2lwMV_sI_BB0s2yTm"
+ },
+ "contents": {
+  "sectionListRenderer": {
+   "contents": [
+    {
+     "musicDescriptionShelfRenderer": {
+      "description": {
+       "runs": [
+        {
+         "text": "Like the legend of the phoenix, huh\nOur ends were beginnings\nWhat keeps the planet spinning? Ah\nThe force from the beginning\nLook\n\nWe've come too far\nTo give up who we are\nSo let's raise the bar\nAnd our cups to the stars\n\nShe's up all night 'til the sun\nI'm up all night to get some\nShe's up all night for good fun\nI'm up all night to get lucky\n\nWe're up all night 'til the sun\nWe're up all night to get some\nWe're up all night for good fun\nWe're up all night to get lucky\n\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\n\nThe present has no rhythm\nYour gift keeps on giving\nWhat is this I'm feeling?\nIf you want to leave, I'm with it\n\nWe've come too far\nTo give up who we are\nSo let's raise the bar\nAnd our cups to the stars\n\nShe's up all night 'til the sun\nI'm up all night to get some\nShe's up all night for good fun\nI'm up all night to get lucky\n\nWe're up all night 'til the sun\nWe're up all night to get some\nWe're up all night for good fun\nWe're up all night to get lucky\n\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\n\nWe're up all night to get-\nWe're up all night to get-\nWe're up all night to get-\nWe're up all night to get-\n\nWe're up all night to get-\nWe're up all night to get-\nWe're up all night to get lucky\nWe're up all night to get lucky\n\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\n\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\n\nWe've come too far\nTo give up who we are\nSo let's raise the bar\nAnd our cups to the stars\n\nShe's up all night 'til the sun\nI'm up all night to get some\nShe's up all night for good fun\nI'm up all night to get lucky\n\nWe're up all night 'til the sun\nWe're up all night to get some\nWe're up all night for good fun\nWe're up all night to get lucky\n\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\n\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky\nWe're up all night to get lucky"
+        }
+       ]
+      },
+      "trackingParams": "CAIQ2fQEGAAiEwjN3cSzlfaXAxX-wj8EHSzbJOY=",
+      "maxCollapsedLines": 0,
+      "maxExpandedLines": 0,
+      "onShowCommands": [
+       {
+        "clickTrackingParams": "CAIQ2fQEGAAiEwjN3cSzlfaXAxX-wj8EHSzbJObKAQTZ6eB6",
+        "logLyricEventCommand": {
+         "serializedLyricInfo": "Eg10X2RZWGtvUHNFMG82GAIiCDEyMTA5MzM2"
+        }
+       }
+      ],
+      "footer": {
+       "runs": [
+        {
+         "text": "Source: Musixmatch"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "trackingParams": "CAEQui8iEwjN3cSzlfaXAxX-wj8EHSzbJOY="
+  }
+ },
+ "trackingParams": "CAAQhGciEwjN3cSzlfaXAxX-wj8EHSzbJObKAQTZ6eB6"
+}
