@@ -179,7 +179,9 @@ Why lyrics go wrong today:
 In this order of trust:
 1. ⬜ **Yours**: an .lrc file next to the song, or lyrics inside the file. Always wins.
 2. ⬜ **Saved**: what Segno found before, with your timing fixes.
-3. ⬜ **YouTube Music's own lyrics** for the song (timed for many songs, timed to that exact audio).
+3. ⬜ **YouTube Music's own timed lyrics: the main source** (Feras's call). Timed to the album audio
+   itself; everything below is a backup for when it has no timed lyrics, isn't reachable (it's
+   blocked in some countries), or the song isn't on YouTube Music.
 4. 🟡 **LRCLIB** (now): only used as timed when its length is within 2 s of the song.
 5. ⬜ **NetEase Cloud Music** as a backup, same rule.
 6. ⬜ **For YouTube videos: the video's uploaded captions** when they're the lyrics (not
@@ -232,7 +234,7 @@ Step 3's line-up, desktop first.
 ## More platforms
 
 - ⬜ **Linux** (promised as "coming soon" on the website)
-- 🟡 **Android**: built (Segno-Android repo), release 1.0.0 waiting for the lyrics plan above
+- 🟡 **Android**: built (Segno-Android repo), 1.0.0 ships with Back up and restore and the two search buttons; lyrics come in 1.1
 - ⬜ Mac: not planned yet, ask by email
 
 ---
