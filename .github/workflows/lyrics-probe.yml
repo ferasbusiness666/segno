@@ -1,0 +1,25 @@
+name: Lyrics sources check
+
+# Asks YouTube Music, NetEase and LRCLIB the way Segno does and saves their real answers, so
+# changes on their side show up here first. Run by hand from the Actions tab.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ask the sources
+        run: mkdir -p out && python3 ci/lyrics_probe.py out | tee out/summary.txt
+      - name: Save the answers to the ci-out branch
+        run: |
+          cd out
+          git init -q -b ci-out
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "Lyrics sources check for ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-out
