@@ -111,21 +111,36 @@ def probe(label, query):
 
 def netease(label, query):
     print(f"\n=== NetEase {label}: {query}")
-    try:
-        t = get("https://music.163.com/api/search/get/web?" + urllib.parse.urlencode({"s": query, "type": 1, "offset": 0, "limit": 5}), {"Referer": "https://music.163.com/"})
-        a = json.loads(t)
-        save(f"netease-{label}-search.json", a)
-        songs = ((a.get("result") or {}).get("songs")) or []
-        print(f"  search: code {a.get('code')}, {len(songs)} songs")
-        for s in songs[:3]:
-            print(f"    {s.get('id')} | {s.get('name')} | {', '.join(x.get('name','') for x in s.get('artists', []))} | {s.get('duration')} ms")
-        if songs:
-            l = json.loads(get(f"https://music.163.com/api/song/lyric?id={songs[0]['id']}&lv=1&kv=1&tv=-1", {"Referer": "https://music.163.com/"}))
+    h = {"Referer": "https://music.163.com/", "Cookie": "appver=8.2.30; os=pc"}
+    q = urllib.parse.urlencode({"s": query, "type": 1, "offset": 0, "limit": 5})
+    tries = (("get", "https://music.163.com/api/search/get?" + q, None),
+             ("cloudsearch", "https://music.163.com/api/cloudsearch/pc?" + q, None),
+             ("search/pc", "https://music.163.com/api/search/pc", q.encode()))
+    first = None
+    for name, url, data in tries:
+        try:
+            req = urllib.request.Request(url, data=data, headers=dict({"User-Agent": UA}, **h))
+            with urllib.request.urlopen(req, timeout=15) as r:
+                a = json.loads(r.read().decode("utf-8", "replace"))
+        except Exception as e:
+            print(f"  {name}: FAILED {e}"); continue
+        save(f"netease-{label}-{name.replace('/', '_')}.json", a)
+        res = a.get("result")
+        songs = res.get("songs", []) if isinstance(res, dict) else []
+        print(f"  {name}: code {a.get('code')}, result is {type(res).__name__}, {len(songs)} songs")
+        for x in songs[:3]:
+            ar = x.get("artists") or x.get("ar") or []
+            print(f"    {x.get('id')} | {x.get('name')} | {', '.join(y.get('name', '') for y in ar)} | {x.get('duration') or x.get('dt')} ms")
+        if songs and first is None:
+            first = songs[0]["id"]
+    if first:
+        try:
+            l = json.loads(get(f"https://music.163.com/api/song/lyric?id={first}&lv=1&kv=1&tv=-1", h))
             save(f"netease-{label}-lyric.json", l)
             lrc = (l.get("lrc") or {}).get("lyric") or ""
             print(f"  lyric: code {l.get('code')}, {len(lrc.splitlines())} lines; starts {lrc[:80]!r}")
-    except Exception as e:
-        print(f"  FAILED {e}")
+        except Exception as e:
+            print(f"  lyric: FAILED {e}")
 
 for label, q in (("getlucky", "daft punk get lucky"), ("thickofit", "ksi thick of it"), ("shoftkalam", "marwan pablo shoft kalam"), ("blindinglights", "the weeknd blinding lights")):
     try:
