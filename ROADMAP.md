@@ -153,19 +153,76 @@ In this order:
 - ⬜ **Last.fm scrobbling**
 - ⬜ **Listening stats** and a shareable "Segno Wrapped" image
 
-## Later: lyrics timing (kept as it is for now)
+## Next: lyrics you can trust, on desktop and Android (before Android 1.0.0 ships lyrics)
 
-- ⬜ **More lyrics sources, in this order:**
-  1. **YouTube's own captions** for songs playing from YouTube: many official videos have the lyrics uploaded as captions, timed to that exact video (fixes "different intro"). yt-dlp can fetch them. Skip auto-generated captions (rough for music).
-  2. **LRCLIB** (what Segno uses now) for everything else.
-  3. **NetEase Cloud Music** as a last backup: huge timed library, but an unofficial API that could break or be blocked.
+Why lyrics go wrong today:
+1. **The audio isn't the version the timing was made for.** Music videos have intros, skits and longer
+   endings; live, sped-up and radio versions differ. That's "off from the start" and "completely off".
+2. **Messy names.** A video title like "MARWAN PABLO x LEGE-CY | شفت كلام" makes the search pick the
+   wrong song.
+3. **One source.** LRCLIB is often busy (503) and doesn't have everything.
+4. **Segno's clock runs a little ahead of the speakers** (the output buffer, about 0.15–0.2 s on
+   desktop), so lines change slightly early.
 
-- ⬜ **Better lyrics sync.** The Earlier/Later arrows (1.1.17) help but aren't enough. Seen by Feras:
-  - off at the start (different intro): fix by comparing with the plain audio version's fingerprint and sliding to line up
-  - off more and more as the song plays: a version at a slightly different speed, or Segno's own clock drifting; check the player's position first with a song whose lyrics are known to be right
-  - completely off: probably lyrics from a different version or a wrong match ("Wrong lyrics?" helps)
+### Step 1: play the right audio, with clean names
+- ⬜ **Two buttons in Search, on both apps: YouTube Music and YouTube.** Segno remembers the last one.
+  YouTube Music gives songs: the official album audio with a clean title, artist, album and length.
+  YouTube gives everything else: music videos, live versions, covers. Play or download from either.
+  If YouTube Music doesn't work in your country, Segno says so and offers YouTube.
+- ⬜ **Spotify songs are matched to YouTube Music songs first** (the same album audio, so the same
+  length), and to YouTube videos only if that fails.
+- ⬜ **Every song remembers where it came from** (YouTube Music song, YouTube video, Spotify, file)
+  and its clean title, artist, album and length. For YouTube videos, use YouTube's "Music in this
+  video" details when the video has them, before guessing from the title.
+
+### Step 2: more sources, asked together, the best answer wins
+In this order of trust:
+1. ⬜ **Yours**: an .lrc file next to the song, or lyrics inside the file. Always wins.
+2. ⬜ **Saved**: what Segno found before, with your timing fixes.
+3. ⬜ **YouTube Music's own lyrics** for the song (timed for many songs, timed to that exact audio).
+4. 🟡 **LRCLIB** (now): only used as timed when its length is within 2 s of the song.
+5. ⬜ **NetEase Cloud Music** as a backup, same rule.
+6. ⬜ **For YouTube videos: the video's uploaded captions** when they're the lyrics (not
+   auto-generated). Timed to that exact video, intro included.
+7. If only untimed lyrics exist anywhere, show them as "Not timed to the song" (as now).
+- ⬜ Ask the sources at the same time with short time limits, so one busy source doesn't hold things
+  up. A source that keeps failing gets rested for a while.
+- Honest risk: YouTube Music's lyrics and NetEase are unofficial and can break or be blocked. That's
+  why there are several.
+
+### Step 3: make the timing fit the audio that's playing
+- 🟡 Same length (within 2 s): use as is. Sped up or slowed: stretch (desktop does this already).
+- ⬜ **A music video with an intro or extra parts: line it up with the official audio.** Segno
+  compares the sound of the video with the YouTube Music audio of the same song (how the notes
+  change over time) and works out where each moment of one sits in the other. That fixes a late
+  start and cuts in the middle. Done once per song in the background, then saved.
+- ⬜ **Count the speaker delay**, so a line lights up exactly when it's sung.
+- 🟡 Still off: Earlier/Later (desktop, 1.1.17), plus a new **Tap to sync**: play the song and tap
+  as each line starts, saved as an .lrc next to the song. Later: offer to share it with LRCLIB so
+  everyone gets it.
+
+### Step 4: backups and checks
+- 🟡 Found lyrics are saved and kept next to songs as .lrc (desktop, 1.1.16). Android also writes
+  them into downloaded M4A files, so other music apps show them.
+- 🟡 No lyrics today: Segno tries again later by itself, and again after a matching fix.
+- ⬜ **One list of tricky test songs** (Arabic, "x" and "feat.", remixes, sped-up, live, long intros)
+  that both apps are tested against, so desktop and Android always pick the same lyrics.
+- ⬜ "Wrong lyrics?" and "Wrong song? Pick another" on both apps.
+
+### Step 5: Android gets lyrics
+- ⬜ The same engine in Kotlin, lyrics in Now Playing (the current line large, tap a line to jump
+  there), and the same fixes. Kept light for weak phones: the line-up in Step 3 only runs when the
+  lyrics are open and the lengths don't match.
+
+Order: Step 1 on both apps → Steps 2 and 4 on desktop → Step 5 (Android, with the same rules) →
+Step 3's line-up, desktop first.
 
 ## Small but loved
+
+- ⬜ **Move your stuff (migration)**: export and import your playlists, loved songs, play history
+  and settings as one file. Use it for a new PC, a backup, or to bring everything to Segno for
+  Android (the same file works on both). Saved files also carry a version number, so updates can
+  upgrade old ones safely instead of losing them.
 
 - ⬜ **Customizable full screen**: choose what shows (the record or just the cover, lyrics, Up next, the controls), the background (blurred cover, the cover's colour, plain dark), where things sit and how big the lyrics are
 
@@ -175,7 +232,7 @@ In this order:
 ## More platforms
 
 - ⬜ **Linux** (promised as "coming soon" on the website)
-- ⬜ **Android** (later, maybe before Linux)
+- 🟡 **Android**: built (Segno-Android repo), release 1.0.0 waiting for the lyrics plan above
 - ⬜ Mac: not planned yet, ask by email
 
 ---
