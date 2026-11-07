@@ -144,6 +144,9 @@ pub enum Sleep {
 
 /// How long the sleep timer takes to fade the music out.
 pub const SLEEP_FADE: f32 = 30.0;
+/// How long after Segno hands audio over it's heard: the ~150 ms kept queued ahead of the
+/// speakers (see `ensure_sink`). The position counts what was handed over.
+pub const HEARD_LATE: f32 = 0.15;
 /// How often the volume steps down during that fade (it glides between steps).
 const SLEEP_TICK: Duration = Duration::from_millis(200);
 

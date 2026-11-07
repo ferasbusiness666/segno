@@ -48,6 +48,9 @@ pub struct YtItem {
     /// Empty: the best search result.
     #[serde(default)]
     pub video: String,
+    /// Found on YouTube Music: a song with clean names (title, artist, album), not a video.
+    #[serde(default)]
+    pub music: bool,
 }
 
 impl YtItem {
@@ -125,10 +128,10 @@ pub enum Setup {
 #[derive(Clone, Debug)]
 pub enum Search {
     Idle,
-    Loading { query: String },
+    /// `music`: on YouTube Music (else YouTube).
+    Loading { music: bool },
     Done { query: String, items: Vec<YtItem>, playlist: Option<PlaylistInfo> },
-    #[allow(dead_code)]
-    Failed { query: String, msg: String },
+    Failed { music: bool, msg: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -382,26 +385,23 @@ impl Yt {
         });
     }
 
-    pub fn search(&self, query: String) {
+    /// Search for words or open a link. `music`: words go to YouTube Music (songs only).
+    pub fn search(&self, query: String, music: bool) {
         clear_fail();
         let gen = self.search_gen.fetch_add(1, Ordering::SeqCst) + 1;
-        self.shared.lk().search = Search::Loading { query: query.clone() };
+        self.shared.lk().search = Search::Loading { music };
         (self.notify)();
         let ctx = self.worker_ctx();
         let gen_ref = self.search_gen.clone();
         std::thread::spawn(move || {
-            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_search(&ctx, &query)))
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_search(&ctx, &query, music)))
                 .unwrap_or_else(|_| Err("Something went wrong while searching. Try again.".into()));
             if gen_ref.load(Ordering::SeqCst) != gen {
                 return; // a newer search replaced this one
             }
             ctx.shared.lk().search = match res {
-                Ok((items, playlist)) => Search::Done {
-                    query,
-                    items,
-                    playlist,
-                },
-                Err(msg) => Search::Failed { query, msg },
+                Ok((items, playlist)) => Search::Done { query, items, playlist },
+                Err(msg) => Search::Failed { music, msg },
             };
             (ctx.notify)();
         });
@@ -1035,12 +1035,12 @@ pub struct ChannelPlaylist {
 impl Resolver {
     /// A playlist, album or song link (any site, Spotify too).
     pub fn link(&self, url: &str) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String> {
-        run_search(&self.0, url)
+        run_search(&self.0, url, false)
     }
 
     /// YouTube search results for some words.
     pub fn search(&self, words: &str) -> Result<Vec<YtItem>, String> {
-        run_search(&self.0, words).map(|(items, _)| items)
+        run_search(&self.0, words, false).map(|(items, _)| items)
     }
 
     /// The public playlists on a YouTube channel's Playlists tab: (channel name, playlists).
@@ -1080,13 +1080,19 @@ fn channel_playlists_from(v: &Value) -> (String, Vec<ChannelPlaylist>) {
     (channel, lists)
 }
 
-fn run_search(ctx: &WorkerCtx, query: &str) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String> {
+fn run_search(ctx: &WorkerCtx, query: &str, music: bool) -> Result<(Vec<YtItem>, Option<PlaylistInfo>), String> {
     let q = query.trim();
     let link = looks_like_link(q).then(|| full_url(q));
     if let Some(url) = &link {
         if crate::spotify::is_spotify(url) {
             return crate::spotify::resolve(url);
         }
+    }
+    // YouTube Music: songs only, with their real names. If it doesn't answer (it's blocked in
+    // some countries), say so; the page offers plain YouTube.
+    if music && link.is_none() {
+        let songs = crate::ytmusic::search_songs(q).map_err(|_| "YouTube Music didn't answer. It may be blocked where you are.".to_string())?;
+        return Ok((songs.into_iter().map(from_music).collect(), None));
     }
     // Words, not a link: ask YouTube's search directly first, much faster than starting
     // yt-dlp. Anything odd and yt-dlp does it as before.
@@ -1135,6 +1141,20 @@ fn run_search(ctx: &WorkerCtx, query: &str) -> Result<(Vec<YtItem>, Option<Playl
             continue;
         }
         return Err(friendly_error_for(&err, &site));
+    }
+}
+
+/// A YouTube Music song as a search result.
+fn from_music(s: crate::ytmusic::Song) -> YtItem {
+    YtItem {
+        id: s.id,
+        title: s.title,
+        channel: s.artist,
+        duration: s.duration,
+        thumb: s.thumb,
+        album: s.album,
+        music: true,
+        ..Default::default()
     }
 }
 
@@ -1761,6 +1781,16 @@ fn run_ytdlp(
     slot: &Mutex<Option<(u64, Child)>>,
     on_progress: &mut dyn FnMut(f32, String),
 ) -> Result<Value, String> {
+    // A Spotify song: the same song on YouTube Music first (the official audio, not a video
+    // with an intro or a different mix), else a YouTube search as before.
+    if !item.find.is_empty() && item.video.is_empty() {
+        if let Some(id) = music_match(item) {
+            let exact = YtItem { video: id, ..item.clone() };
+            if let Ok(v) = run_ytdlp_once(tools, &exact, uid, tmp, slot, on_progress, false) {
+                return Ok(v);
+            }
+        }
+    }
     let first = run_ytdlp_once(tools, item, uid, tmp, slot, on_progress, true);
     // A Spotify song with no YouTube result of about the right length: take the best match anyway.
     if !item.find.is_empty() && item.duration > 0.0 && matches!(&first, Err(e) if e == NO_MATCH) {
@@ -1771,12 +1801,50 @@ fn run_ytdlp(
 
 const NO_MATCH: &str = "Couldn't find this song on YouTube.";
 
+/// A Spotify song's twin on YouTube Music: same name and artist, the same version (not live
+/// or sped up unless it is), and within 3 s of its length. None: no sure match, or no answer.
+fn music_match(item: &YtItem) -> Option<String> {
+    let main = item.channel.split(',').next().unwrap_or(&item.channel).trim();
+    let songs = crate::ytmusic::search_songs(&format!("{} {main}", item.title)).ok()?;
+    pick_match(item, &songs)
+}
+
+fn pick_match(item: &YtItem, songs: &[crate::ytmusic::Song]) -> Option<String> {
+    let ours = version_kinds(&item.title);
+    songs
+        .iter()
+        .find(|s| {
+            crate::lyrics::same_song(&s.title, &item.title)
+                && crate::lyrics::same_artist(&s.artist, &item.channel)
+                && (item.duration <= 0.0 || (s.duration - item.duration).abs() <= 3.0)
+                && version_kinds(&s.title) == ours
+        })
+        .map(|s| s.id.clone())
+}
+
+const VERSION_KINDS: [&str; 11] = ["live", "cover", "karaoke", "instrumental", "nightcore", "sped up", "slowed", "reverb", "8d", "remix", "acoustic"];
+
+/// Which other-version words (live, remix, sped up…) a title has, as whole words.
+fn version_kinds(title: &str) -> Vec<&'static str> {
+    let t = title.to_lowercase();
+    VERSION_KINDS
+        .iter()
+        .copied()
+        .filter(|k| {
+            t.match_indices(k).any(|(i, _)| {
+                let before = t[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+                let after = t[i + k.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+                before && after
+            })
+        })
+        .collect()
+}
+
 /// A pattern for video titles that are another version of a song (live, cover, sped up…),
 /// leaving out the kinds the song's own title says it is. None when it is all of them.
 fn other_versions(song_title: &str) -> Option<String> {
-    const KINDS: [&str; 11] = ["live", "cover", "karaoke", "instrumental", "nightcore", "sped up", "slowed", "reverb", "8d", "remix", "acoustic"];
     let own = song_title.to_lowercase();
-    let skip: Vec<&str> = KINDS.iter().copied().filter(|k| !own.contains(k)).collect();
+    let skip: Vec<&str> = VERSION_KINDS.iter().copied().filter(|k| !own.contains(k)).collect();
     (!skip.is_empty()).then(|| format!("(?i)\\b({})\\b", skip.join("|")))
 }
 
@@ -2121,6 +2189,34 @@ mod tests {
         assert!(!super::is_entry_for(&meta, &item));
         let meta = serde_json::json!({ "segno_id": "spotify:abc", "id": "dQw4w9WgXcQ" });
         assert!(super::is_entry_for(&meta, &item));
+    }
+
+    #[test]
+    fn spotify_songs_find_their_twin_on_youtube_music() {
+        use crate::ytmusic::Song;
+        let song = |id: &str, title: &str, artist: &str, duration: f32| Song { id: id.into(), title: title.into(), artist: artist.into(), duration, ..Default::default() };
+        let found = [
+            song("liveLucky01", "Get Lucky (Live)", "Daft Punk", 369.0),
+            song("radioLucky1", "Get Lucky (Radio Edit)", "Daft Punk, Pharrell Williams & Nile Rodgers", 248.0),
+            song("4D7u5KF7SP8", "Get Lucky (feat. Pharrell Williams & Nile Rodgers)", "Daft Punk, Pharrell Williams & Nile Rodgers", 370.0),
+        ];
+        let ours = super::YtItem {
+            id: "spotify:69kOkLUCkxIZYexIgSG8rq".into(),
+            title: "Get Lucky (feat. Pharrell Williams and Nile Rodgers)".into(),
+            channel: "Daft Punk, Pharrell Williams, Nile Rodgers".into(),
+            duration: 369.6,
+            find: "Daft Punk - Get Lucky audio".into(),
+            ..Default::default()
+        };
+        // Not the live one, not the short edit: the album song.
+        assert_eq!(super::pick_match(&ours, &found).as_deref(), Some("4D7u5KF7SP8"));
+        let edit = super::YtItem { title: "Get Lucky - Radio Edit".into(), duration: 248.4, ..ours.clone() };
+        assert_eq!(super::pick_match(&edit, &found).as_deref(), Some("radioLucky1"));
+        // Another artist's song with the same name isn't it.
+        let other = super::YtItem { channel: "Someone Else".into(), ..ours.clone() };
+        assert_eq!(super::pick_match(&other, &found), None);
+        assert_eq!(super::version_kinds("Levitating (Sped Up)"), vec!["sped up"]);
+        assert!(super::version_kinds("Alive").is_empty(), "whole words only");
     }
 
     #[test]

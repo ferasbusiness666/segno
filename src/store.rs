@@ -150,6 +150,8 @@ pub struct Settings {
     pub discord_status: bool,
     /// Told once that Discord friends can see what's playing.
     pub discord_told: bool,
+    /// Search YouTube Music (songs, clean names) instead of YouTube (every video).
+    pub search_music: bool,
 }
 
 impl Default for Settings {
@@ -183,6 +185,7 @@ impl Default for Settings {
             download_rights_ok: false,
             discord_status: true,
             discord_told: false,
+            search_music: true,
         }
     }
 }

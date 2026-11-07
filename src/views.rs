@@ -11,7 +11,7 @@ use crate::store::{self, SortBy};
 use crate::theme::{self, *};
 use crate::widgets::{self as w, PillKind};
 use crate::ytdlp::{JobStatus, Search, Setup, YtItem};
-use egui::{pos2, vec2, Align2, Color32, CursorIcon, Id, Rect, Response, Sense, Stroke, Ui, Vec2};
+use egui::{pos2, vec2, Align2, Color32, CornerRadius, CursorIcon, Id, Rect, Response, Sense, Stroke, Ui, Vec2};
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -1607,7 +1607,13 @@ impl App {
             }
         }
         let link_site = if is_link { crate::ytdlp::site_from_url(q) } else { "YouTube".into() };
-        self.section_title(ui, &if is_link { format!("From {link_site}") } else { "YouTube".to_string() });
+        let music = self.settings.search_music && !is_link;
+        if is_link {
+            self.section_title(ui, &format!("From {link_site}"));
+        } else {
+            self.source_switch(ui, q);
+        }
+        let place = if music { "YouTube Music" } else { "YouTube" };
         let search = self.yt.shared.lk().search.clone();
         match search {
             Search::Idle => {
@@ -1618,30 +1624,31 @@ impl App {
                     let p = ui.painter();
                     p.rect_filled(r, R_MD, lerp_color(RAISED, RAISED_2, h));
                     icons::glyph(p, pos2(r.left() + 28.0, r.center().y), icons::SEARCH, 18.0, ACCENT);
-                    w::text(p, pos2(r.left() + 52.0, r.center().y), Align2::LEFT_CENTER, &format!("Search YouTube for “{q}”"), body_strong(), TEXT, wdt - 160.0);
+                    w::text(p, pos2(r.left() + 52.0, r.center().y), Align2::LEFT_CENTER, &format!("Search {place} for “{q}”"), body_strong(), TEXT, wdt - 160.0);
                     w::text(p, pos2(r.right() - S4, r.center().y), Align2::RIGHT_CENTER, "Enter ↵", small(), TEXT_3, 80.0);
                     if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
                         self.actions.push(Action::YtSearch(q.to_string()));
                     }
                 }
             }
-            Search::Loading { query } => {
-                let _ = query;
+            Search::Loading { music } => {
                 // Skeleton rows in the shape of the results.
                 let t = ui.input(|i| i.time) as f32;
                 let pulse = 0.5 + 0.5 * (t * 3.0).sin();
+                let pic = if music { vec2(54.0, 54.0) } else { vec2(96.0, 54.0) };
                 for i in 0..6 {
                     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 68.0), Sense::hover());
                     let p = ui.painter();
                     let c = lerp_color(RAISED, RAISED_2, pulse * 0.6);
-                    p.rect_filled(Rect::from_min_size(pos2(r.left(), r.top() + 7.0), vec2(96.0, 54.0)), R_SM + 2.0, c);
-                    p.rect_filled(Rect::from_min_size(pos2(r.left() + 112.0, r.top() + 18.0), vec2(260.0 - i as f32 * 18.0, 12.0)), 6, c);
-                    p.rect_filled(Rect::from_min_size(pos2(r.left() + 112.0, r.top() + 40.0), vec2(140.0, 10.0)), 5, c);
+                    let x = r.left() + pic.x + S4;
+                    p.rect_filled(Rect::from_min_size(pos2(r.left(), r.top() + 7.0), pic), R_SM + 2.0, c);
+                    p.rect_filled(Rect::from_min_size(pos2(x, r.top() + 18.0), vec2(260.0 - i as f32 * 18.0, 12.0)), 6, c);
+                    p.rect_filled(Rect::from_min_size(pos2(x, r.top() + 40.0), vec2(140.0, 10.0)), 5, c);
                 }
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(40));
             }
-            Search::Failed { msg, .. } => {
-                if matches!(self.yt.shared.lk().setup, Setup::Failed(_)) {
+            Search::Failed { msg, music: on_music } => {
+                if !on_music && matches!(self.yt.shared.lk().setup, Setup::Failed(_)) {
                     // The setup banner above already explains it, with its own Try again.
                     return;
                 }
@@ -1650,13 +1657,23 @@ impl App {
                 let p = ui.painter();
                 p.rect_filled(r, R_MD, RAISED);
                 icons::glyph(p, pos2(r.left() + 26.0, r.center().y), icons::CIRCLE_ALERT, 20.0, WARN);
-                let head = if is_link { "Couldn't open this link" } else { "Couldn't search YouTube" };
-                w::text(p, pos2(r.left() + 48.0, r.top() + 22.0), Align2::LEFT_CENTER, head, body_strong(), TEXT, wdt - 200.0);
-                w::text(p, pos2(r.left() + 48.0, r.top() + 42.0), Align2::LEFT_CENTER, &msg, small(), TEXT_2, wdt - 200.0);
-                let br = Rect::from_min_size(pos2(r.right() - 130.0, r.center().y - 18.0), vec2(116.0, 36.0));
+                let head = if is_link {
+                    "Couldn't open this link".to_string()
+                } else {
+                    format!("Couldn't search {}", if on_music { "YouTube Music" } else { "YouTube" })
+                };
+                // YouTube Music not answering: plain YouTube usually still works.
+                let (label, icon, bw) = if on_music && !is_link { ("Search YouTube instead", icons::SEARCH, 214.0) } else { ("Try again", icons::REFRESH, 116.0) };
+                w::text(p, pos2(r.left() + 48.0, r.top() + 22.0), Align2::LEFT_CENTER, &head, body_strong(), TEXT, wdt - bw - 84.0);
+                w::text(p, pos2(r.left() + 48.0, r.top() + 42.0), Align2::LEFT_CENTER, &msg, small(), TEXT_2, wdt - bw - 84.0);
+                let br = Rect::from_min_size(pos2(r.right() - bw - 14.0, r.center().y - 18.0), vec2(bw, 36.0));
                 let mut bu = ui.new_child(egui::UiBuilder::new().max_rect(br));
-                if w::pill(&mut bu, "Try again", Some(icons::REFRESH), PillKind::Secondary).clicked() {
-                    self.actions.push(Action::YtSearch(q.to_string()));
+                if w::pill(&mut bu, label, Some(icon), PillKind::Secondary).clicked() {
+                    if on_music && !is_link {
+                        self.set_search_music(false, q);
+                    } else {
+                        self.actions.push(Action::YtSearch(q.to_string()));
+                    }
                 }
             }
             Search::Done { query, items, playlist } => {
@@ -1769,6 +1786,40 @@ impl App {
         ui.add_space(S3);
     }
 
+    /// Where words are searched: two tabs, YouTube Music (songs with clean names) or YouTube
+    /// (every video). The choice is kept.
+    fn source_switch(&mut self, ui: &mut Ui, q: &str) {
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
+        let mut x = row.left();
+        for (music, label, tip) in [
+            (true, "YouTube Music", "Songs, with their real names and covers"),
+            (false, "YouTube", "Every video, live versions and covers too"),
+        ] {
+            let on = self.settings.search_music == music;
+            let tw = w::text_width(ui, label, body_strong());
+            let r = Rect::from_min_size(pos2(x, row.center().y - 16.0 + 4.0), vec2(tw + 2.0 * S4, 32.0));
+            let resp = ui.interact(r, Id::new(("search-source", music)), Sense::click());
+            let (h, pr) = w::hover_press(ui, &resp);
+            let r2 = w::scale_rect(r, 1.0 - 0.03 * pr);
+            let p = ui.painter();
+            let (bg, fg) = if on { (TEXT, BG) } else { (lerp_color(RAISED_2, Color32::from_rgb(0x33, 0x33, 0x3B), h), TEXT) };
+            p.rect_filled(r2, CornerRadius::same(16), bg);
+            w::text(p, r2.center(), Align2::CENTER_CENTER, label, body_strong(), fg, f32::INFINITY);
+            if resp.on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand).clicked() && !on {
+                self.set_search_music(music, q);
+            }
+            x = r.right() + S2;
+        }
+    }
+
+    fn set_search_music(&mut self, music: bool, q: &str) {
+        self.settings.search_music = music;
+        self.settings.save();
+        if !q.trim().is_empty() && !matches!(self.yt.shared.lk().search, Search::Idle) {
+            self.actions.push(Action::YtSearch(q.to_string()));
+        }
+    }
+
     fn yt_row(&mut self, ui: &mut Ui, item: &YtItem, i: usize) {
         let wdt = ui.available_width();
         let (rect, resp) = ui.allocate_exact_size(vec2(wdt, 68.0), Sense::click());
@@ -1789,9 +1840,14 @@ impl App {
         let playing_this = self.playing_yt_id().as_deref() == Some(item.id.as_str());
 
         // Thumbnail, with play / loading / now-playing on top.
-        let tr = Rect::from_min_size(pos2(rect.left(), rect.top() + 7.0), vec2(96.0, 54.0));
+        // YouTube Music songs have a square cover; videos a wide thumbnail.
+        let tr = Rect::from_min_size(pos2(rect.left(), rect.top() + 7.0), if item.music { vec2(54.0, 54.0) } else { vec2(96.0, 54.0) });
         let tex = item.thumb_url().and_then(|u| self.art.get(ArtKey::Url(u)));
-        w::thumb(&p, tr, tex, R_SM + 2.0);
+        if item.music {
+            w::art(&p, tr, tex, R_SM + 2.0, Color32::WHITE);
+        } else {
+            w::thumb(&p, tr, tex, R_SM + 2.0);
+        }
         let veil = if loading || playing_this { 1.0 } else { h };
         if veil > 0.0 {
             p.rect_filled(tr, R_SM + 2.0, with_alpha(Color32::BLACK, 0.55 * veil));
@@ -1804,7 +1860,7 @@ impl App {
             } else {
                 icons::play(&p, tr.center(), 16.0, with_alpha(TEXT, veil));
             }
-        } else if item.duration > 0.0 {
+        } else if item.duration > 0.0 && !item.music {
             let d = fmt_time(item.duration);
             let dw = w::text_width(ui, &d, small()) + 8.0;
             let dr = Rect::from_min_size(pos2(tr.right() - dw - 4.0, tr.bottom() - 20.0), vec2(dw, 16.0));
@@ -1816,7 +1872,15 @@ impl App {
         let title_c = if playing_this { ACCENT } else { TEXT };
         w::text(&p, pos2(tx, rect.center().y - 9.0), Align2::LEFT_CENTER, &item.title, body(), title_c, tw);
         let mut sub = item.channel.clone();
-        if !item.is_youtube() {
+        if item.music {
+            // "Daft Punk · Random Access Memories · 6:10" (a single's album is just its name again).
+            let album = if item.album.to_lowercase() == item.title.to_lowercase() { String::new() } else { item.album.clone() };
+            for part in [album, if item.duration > 0.0 { fmt_time(item.duration) } else { String::new() }] {
+                if !part.is_empty() {
+                    sub = if sub.is_empty() { part } else { format!("{sub} · {part}") };
+                }
+            }
+        } else if !item.is_youtube() {
             sub = if sub.is_empty() { item.source().to_string() } else { format!("{} · {sub}", item.source()) };
         }
         if playing_this && !saved {
@@ -2150,7 +2214,7 @@ impl App {
                 app.settings.save();
             }
             settings_sep(ui);
-            if toggle_row(ui, "Synced lyrics", "Finds lyrics on lrclib.net when you open them, using the song and artist name. Off sends nothing.", &mut lyr) {
+            if toggle_row(ui, "Synced lyrics", "Finds lyrics on YouTube Music, LRCLIB and NetEase when you open them, using the song's name. Off sends nothing.", &mut lyr) {
                 app.settings.show_lyrics = lyr;
                 app.settings.save();
             }

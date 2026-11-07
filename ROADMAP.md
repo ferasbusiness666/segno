@@ -165,30 +165,32 @@ Why lyrics go wrong today:
    desktop), so lines change slightly early.
 
 ### Step 1: play the right audio, with clean names
-- ⬜ **Two buttons in Search, on both apps: YouTube Music and YouTube.** Segno remembers the last one.
+- ✅ **Two buttons in Search, on both apps: YouTube Music and YouTube.** Segno remembers the last one.
+  (Android 1.0.0, desktop 1.1.22)
   YouTube Music gives songs: the official album audio with a clean title, artist, album and length.
   YouTube gives everything else: music videos, live versions, covers. Play or download from either.
   If YouTube Music doesn't work in your country, Segno says so and offers YouTube.
-- ⬜ **Spotify songs are matched to YouTube Music songs first** (the same album audio, so the same
-  length), and to YouTube videos only if that fails.
-- ⬜ **Every song remembers where it came from** (YouTube Music song, YouTube video, Spotify, file)
+- ✅ **Spotify songs are matched to YouTube Music songs first** (the same album audio, so the same
+  length), and to YouTube videos only if that fails. (desktop 1.1.22)
+- 🟡 **Every song remembers where it came from** (the YouTube video id is used for lyrics since
+  desktop 1.1.22) (YouTube Music song, YouTube video, Spotify, file)
   and its clean title, artist, album and length. For YouTube videos, use YouTube's "Music in this
   video" details when the video has them, before guessing from the title.
 
 ### Step 2: more sources, asked together, the best answer wins
 In this order of trust:
-1. ⬜ **Yours**: an .lrc file next to the song, or lyrics inside the file. Always wins.
-2. ⬜ **Saved**: what Segno found before, with your timing fixes.
-3. ⬜ **YouTube Music's own timed lyrics: the main source** (Feras's call). Timed to the album audio
+1. 🟡 **Yours**: an .lrc file next to the song (lyrics inside the file: not yet). Always wins.
+2. ✅ **Saved**: what Segno found before, with your timing fixes.
+3. ✅ **YouTube Music's own timed lyrics: the main source** (desktop 1.1.22) (Feras's call). Timed to the album audio
    itself; everything below is a backup for when it has no timed lyrics, isn't reachable (it's
    blocked in some countries), or the song isn't on YouTube Music.
-4. 🟡 **LRCLIB** (now): only used as timed when its length is within 2 s of the song.
-5. ⬜ **NetEase Cloud Music** as a backup, same rule.
+4. ✅ **LRCLIB**: only used as timed when its length is close to the song's.
+5. ✅ **NetEase Cloud Music** as a backup, same rule. (desktop 1.1.22)
 6. ⬜ **For YouTube videos: the video's uploaded captions** when they're the lyrics (not
    auto-generated). Timed to that exact video, intro included.
 7. If only untimed lyrics exist anywhere, show them as "Not timed to the song" (as now).
-- ⬜ Ask the sources at the same time with short time limits, so one busy source doesn't hold things
-  up. A source that keeps failing gets rested for a while.
+- ✅ Ask the sources at the same time with short time limits, so one busy source doesn't hold things
+  up. A source that fails while the others answer is rested for half an hour. (desktop 1.1.22)
 - Honest risk: YouTube Music's lyrics and NetEase are unofficial and can break or be blocked. That's
   why there are several.
 
@@ -198,7 +200,7 @@ In this order of trust:
   compares the sound of the video with the YouTube Music audio of the same song (how the notes
   change over time) and works out where each moment of one sits in the other. That fixes a late
   start and cuts in the middle. Done once per song in the background, then saved.
-- ⬜ **Count the speaker delay**, so a line lights up exactly when it's sung.
+- ✅ **Count the speaker delay**, so a line lights up exactly when it's sung. (desktop 1.1.22)
 - 🟡 Still off: Earlier/Later (desktop, 1.1.17), plus a new **Tap to sync**: play the song and tap
   as each line starts, saved as an .lrc next to the song. Later: offer to share it with LRCLIB so
   everyone gets it.
@@ -207,9 +209,10 @@ In this order of trust:
 - 🟡 Found lyrics are saved and kept next to songs as .lrc (desktop, 1.1.16). Android also writes
   them into downloaded M4A files, so other music apps show them.
 - 🟡 No lyrics today: Segno tries again later by itself, and again after a matching fix.
-- ⬜ **One list of tricky test songs** (Arabic, "x" and "feat.", remixes, sped-up, live, long intros)
+- 🟡 **One list of tricky test songs** (tests/data/tricky-songs.json, checked live by the "Lyrics
+  live check" workflow; Android uses the same file) (Arabic, "x" and "feat.", remixes, sped-up, live, long intros)
   that both apps are tested against, so desktop and Android always pick the same lyrics.
-- ⬜ "Wrong lyrics?" and "Wrong song? Pick another" on both apps.
+- 🟡 "Wrong lyrics?" and "Wrong song? Pick another" on both apps (desktop has both).
 
 ### Step 5: Android gets lyrics
 - ⬜ The same engine in Kotlin, lyrics in Now Playing (the current line large, tap a line to jump

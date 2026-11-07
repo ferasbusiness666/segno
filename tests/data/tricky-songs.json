@@ -1,0 +1,47 @@
+[
+  {
+    "note": "Official song from YouTube Music: its own timed lyrics should win.",
+    "title": "Get Lucky (feat. Pharrell Williams & Nile Rodgers)",
+    "artist": "Daft Punk, Pharrell Williams & Nile Rodgers",
+    "duration": 369,
+    "video": "4D7u5KF7SP8",
+    "expect": "timed"
+  },
+  {
+    "note": "Spotify import: clean names, no video, Spotify writes 'and' where YouTube Music writes '&'.",
+    "title": "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+    "artist": "Daft Punk, Pharrell Williams, Nile Rodgers",
+    "duration": 369,
+    "expect": "timed"
+  },
+  {
+    "note": "Length unknown.",
+    "title": "Thick Of It",
+    "artist": "KSI, Trippie Redd",
+    "duration": 0,
+    "expect": "timed"
+  },
+  {
+    "note": "Music video played from YouTube: longer than the song, so the song's timing doesn't fit. Words at least.",
+    "title": "The Weeknd - Blinding Lights (Official Video)",
+    "artist": "TheWeekndVEVO",
+    "from_video": true,
+    "duration": 263,
+    "video": "4NRXx6U8ABQ",
+    "expect": "words"
+  },
+  {
+    "note": "Arabic song: YouTube Music has no lyrics; NetEase has them timed.",
+    "title": "Shoft Kalam",
+    "artist": "Marwan Pablo, Lege-Cy & HatemBas",
+    "duration": 210,
+    "expect": "timed"
+  },
+  {
+    "note": "A song nobody has: nothing, and quickly.",
+    "title": "Segno Test Song That Does Not Exist",
+    "artist": "Nobody Here At All",
+    "duration": 200,
+    "expect": "none"
+  }
+]

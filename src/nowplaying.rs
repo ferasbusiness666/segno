@@ -309,7 +309,8 @@ impl App {
         let body = Rect::from_min_max(pos2(area.left(), area.top() + BAR), area.max);
         let id = self.lyrics_for.unwrap_or(0);
         let now = ctx.input(|i| i.time);
-        let pos = self.seek_preview.unwrap_or(self.pos);
+        // What's playing reaches the speakers a moment after Segno hands it over.
+        let pos = self.seek_preview.unwrap_or((self.pos - crate::player::HEARD_LATE).max(0.0));
         let idx = l.line_at(pos + LEAD);
 
         // Break the lines into rows once per song and size, not every frame.

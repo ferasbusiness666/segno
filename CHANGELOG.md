@@ -9,6 +9,16 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.22
+
+### New
+- Search has two tabs: YouTube Music, for songs with their real names and covers, and YouTube, for every video. Segno remembers the one you used last. If YouTube Music doesn't work where you live, one press searches YouTube instead.
+
+### Better
+- Lyrics now come from YouTube Music first, timed for the song itself, with LRCLIB and NetEase as backups. Many more songs have timed lyrics, Arabic songs too.
+- Lyrics light up right when a line is sung, not a moment early.
+- Songs from Spotify play the official song from YouTube Music when there is one, so no music video intros.
+
 ## 1.1.21
 
 ### Better

@@ -751,12 +751,22 @@ impl App {
             _ => (info.title, info.artist, false),
         };
         let artist = if artist == crate::library::UNKNOWN_ARTIST { String::new() } else { artist };
+        // The YouTube video the audio is from, when known: played from one, or downloaded
+        // from one. (A Spotify song's video is a search's pick, so its names say more.)
+        let is_video = |v: &str| v.len() == 11 && !v.contains(':');
+        let video = match &info.preview {
+            Some(item) if !item.video.is_empty() => Some(item.video.clone()),
+            Some(item) if item.is_youtube() => Some(item.id.clone()),
+            Some(_) => None,
+            None => self.lib.get(id).and_then(|t| t.yt_id.clone()).filter(|v| is_video(v)),
+        };
         Some(crate::lyrics::Query {
             id,
             song: self.lib.get(id).map(|t| t.path.clone()),
             title,
             artist,
             from_video,
+            video,
             duration: info.duration,
             force,
             beside: self.settings.lyrics_beside,
@@ -1666,7 +1676,7 @@ impl App {
             Action::YtSearch(q) => {
                 self.yt_requested = true;
                 if !q.trim().is_empty() {
-                    self.yt.search(q);
+                    self.yt.search(q, self.settings.search_music);
                 }
             }
             Action::YtDownload { items, playlist_name } => {

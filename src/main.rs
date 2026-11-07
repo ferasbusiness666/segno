@@ -6,6 +6,7 @@ mod art;
 mod icons;
 mod import;
 mod library;
+mod netease;
 mod lyrics;
 mod net;
 mod platform;
@@ -26,6 +27,7 @@ mod update;
 mod views;
 mod widgets;
 mod ytdlp;
+mod ytmusic;
 mod ytsearch;
 
 use std::sync::OnceLock;

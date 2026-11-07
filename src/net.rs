@@ -130,3 +130,14 @@ pub fn post_json(url: &str, body: &str, headers: &[(&str, &str)], secs: u64) -> 
         .map_err(|e| e.to_string())?;
     resp.body_mut().with_config().limit(16 << 20).read_to_string().map_err(|e| e.to_string())
 }
+
+/// A web page or API answer as text, asked for the way a browser would, with extra headers,
+/// giving up after `secs`.
+pub fn get_with(url: &str, headers: &[(&str, &str)], secs: u64) -> Result<String, String> {
+    let mut req = agent().get(url).header("User-Agent", BROWSER).header("Accept-Language", "en");
+    for (k, v) in headers {
+        req = req.header(*k, *v);
+    }
+    let mut resp = req.config().timeout_global(Some(Duration::from_secs(secs))).build().call().map_err(|e| e.to_string())?;
+    resp.body_mut().with_config().limit(4 << 20).read_to_string().map_err(|e| e.to_string())
+}

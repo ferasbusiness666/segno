@@ -1,5 +1,12 @@
-//! Lyrics: found on LRCLIB (free, no account) and kept on disk. A `.lrc` file next to a song
-//! always wins. Timed lyrics when there are any, plain lyrics when that's all there is.
+//! Lyrics, kept on disk. A `.lrc` file next to a song always wins. Otherwise three places are
+//! asked at once, and the most trusted answer is kept:
+//!
+//! 1. YouTube Music: timed lyrics made for the official song, so they fit it exactly.
+//! 2. LRCLIB (free, no account): timed by the people who use it.
+//! 3. NetEase: a huge library with songs the others don't have (Arabic songs too).
+//!
+//! Timed lyrics always beat plain ones. A place that stops answering (YouTube Music is blocked
+//! in some countries) is left alone for a while, so it doesn't slow every song down.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
@@ -8,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use serde::Deserialize;
 
+use crate::store::LockExt;
 use crate::{net, store};
 
 /// How long "nothing found" is remembered before asking again.
@@ -107,6 +115,7 @@ pub enum State {
 }
 
 /// A song to find lyrics for.
+#[derive(Clone, Debug, Default)]
 pub struct Query {
     pub id: u64,
     /// The file, for a `.lrc` beside it (None for songs playing online).
@@ -116,6 +125,9 @@ pub struct Query {
     pub title: String,
     pub artist: String,
     pub from_video: bool,
+    /// The YouTube video the audio is from, when it's known (songs from YouTube, played or
+    /// downloaded): YouTube Music knows which song it is.
+    pub video: Option<String>,
     pub duration: f32,
     /// Ask again even if it wasn't found last time ("Try again").
     pub force: bool,
@@ -488,7 +500,7 @@ fn key(s: &str) -> String {
 }
 
 /// Two names for the same artist ("HatemBas" and "HATEM BAS", or one of several).
-fn same_artist(found: &str, ours: &str) -> bool {
+pub(crate) fn same_artist(found: &str, ours: &str) -> bool {
     let (f, o) = (key(found), key(primary_artist(ours)));
     let f1 = key(primary_artist(found));
     !o.is_empty() && !f1.is_empty() && (f.contains(&o) || o.contains(&f1))
@@ -496,7 +508,7 @@ fn same_artist(found: &str, ours: &str) -> bool {
 
 /// Two names for the same song, whatever the version or guests: "addiction - Slowed",
 /// "addiction (feat. X)" and "Addiction" all match.
-fn same_song(found: &str, ours: &str) -> bool {
+pub(crate) fn same_song(found: &str, ours: &str) -> bool {
     let base = |s: &str| {
         let s = without_version(s);
         let s = s.split(['(', '[']).next().unwrap_or("");
@@ -938,12 +950,13 @@ fn keep_beside(q: &Query, l: &Lyrics) {
     }
 }
 
-/// Ask LRCLIB and keep the answer on disk. "Not found" is only remembered on the `last_try`.
-/// Blocks on the network, so it runs on the worker.
+/// Ask every place and keep the answer on disk. "Not found" is only remembered on the
+/// `last_try`, and only when every place answered. Blocks on the network, so it runs on the worker.
 fn from_site(q: &Query, last_try: bool) -> State {
     let f = files(q);
-    match from_lrclib(q) {
-        Ok(Some(l)) => {
+    let (found, heard) = ask_all(q);
+    match found {
+        Some((_, l)) => {
             keep_beside(q, &l);
             let _ = if l.synced {
                 std::fs::write(&f.timed, l.to_lrc())
@@ -953,18 +966,251 @@ fn from_site(q: &Query, last_try: bool) -> State {
             let _ = std::fs::remove_file(&f.miss);
             State::Found(Arc::new(l))
         }
-        Ok(None) => {
-            if last_try {
+        // Nobody answered, or LRCLIB was busy: not "not found", so it's asked again.
+        None if heard.answered == 0 || heard.busy => State::Failed { busy: heard.busy },
+        None => {
+            if last_try && heard.complete {
                 let _ = std::fs::write(&f.miss, MATCHER);
             }
             State::Missing
         }
-        Err(Fail::Busy) => State::Failed { busy: true },
-        Err(Fail::Offline(e)) => {
-            eprintln!("lyrics: {e}");
-            State::Failed { busy: false }
+    }
+}
+
+// -------------------------------------------------------------------------------------------
+// Asking every place at once
+
+/// The places asked, most trusted first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    YtMusic,
+    Lrclib,
+    NetEase,
+}
+
+const SOURCES: [Source; 3] = [Source::YtMusic, Source::Lrclib, Source::NetEase];
+/// A place that didn't answer, while another did, is left alone this long.
+const REST: Duration = Duration::from_secs(30 * 60);
+/// Once timed lyrics are in hand, a more trusted place still asking gets this much longer.
+const BETTER_WAIT: Duration = Duration::from_secs(8);
+/// Most time one song's lookup takes; then the best so far.
+const ALL_WAIT: Duration = Duration::from_secs(30);
+/// A YouTube Music song this much longer or shorter isn't the same cut: its timing won't fit.
+const YTM_DRIFT: f32 = 2.0;
+
+static RESTING: std::sync::Mutex<[Option<Instant>; 3]> = std::sync::Mutex::new([None; 3]);
+
+/// What one place said.
+#[derive(Debug)]
+enum Said {
+    Found(Lyrics),
+    Nothing,
+    /// Couldn't ask it. `busy`: it said so (LRCLIB often does).
+    Failed { busy: bool },
+}
+
+/// How a lookup went, besides what was found.
+#[derive(Debug, Default, PartialEq)]
+struct Heard {
+    /// Places that answered (found something or not).
+    answered: usize,
+    /// Every place answered, apart from ones left alone for not answering lately.
+    complete: bool,
+    /// LRCLIB said it's busy.
+    busy: bool,
+}
+
+/// How much lyrics from the place at `i` (in `SOURCES`) are trusted: lower is better. Timed
+/// lyrics from anywhere beat plain ones.
+fn rank(i: usize, l: &Lyrics) -> usize {
+    if l.synced { i } else { SOURCES.len() + i }
+}
+
+/// Which answer to keep, once nothing still being asked could beat it. None: keep waiting.
+/// Some(None): nothing was found. `asking`: the places asked.
+fn settle(said: &[Option<Said>], asking: &[bool], avoid: Option<u64>) -> Option<Option<usize>> {
+    let best = said
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| match s {
+            Some(Said::Found(l)) if !l.lines.is_empty() && avoid != Some(l.words_key()) => Some((rank(i, l), i)),
+            _ => None,
+        })
+        .min();
+    // The best a place still being asked could do: timed lyrics.
+    let waiting = (0..said.len()).filter(|&i| asking[i] && said[i].is_none()).min();
+    match (best, waiting) {
+        (_, None) => Some(best.map(|b| b.1)),
+        (Some((r, i)), Some(w)) if r < w => Some(Some(i)),
+        _ => None,
+    }
+}
+
+fn resting(i: usize) -> bool {
+    RESTING.lk()[i].is_some_and(|until| Instant::now() < until)
+}
+
+/// Ask every place that isn't resting, each on its own thread, and keep the most trusted
+/// answer.
+fn ask_all(q: &Query) -> (Option<(Source, Lyrics)>, Heard) {
+    let (tx, rx) = channel::<(usize, Said)>();
+    let mut asking = [false; 3];
+    for (i, src) in SOURCES.into_iter().enumerate() {
+        if resting(i) {
+            continue;
+        }
+        asking[i] = true;
+        let (q, tx) = (q.clone(), tx.clone());
+        let spawned = std::thread::Builder::new().name("lyrics-source".into()).spawn(move || {
+            let said = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ask_source(src, &q))).unwrap_or(Said::Failed { busy: false });
+            let _ = tx.send((i, said));
+        });
+        if spawned.is_err() {
+            asking[i] = false;
         }
     }
+    drop(tx);
+    let mut said: [Option<Said>; 3] = [None, None, None];
+    let start = Instant::now();
+    let mut deadline = start + ALL_WAIT;
+    let pick = loop {
+        if let Some(pick) = settle(&said, &asking, q.avoid) {
+            break pick;
+        }
+        let now = Instant::now();
+        match rx.recv_timeout(deadline.saturating_duration_since(now)) {
+            Ok((i, s)) => {
+                if matches!(&s, Said::Found(l) if l.synced) {
+                    deadline = deadline.min(Instant::now() + BETTER_WAIT);
+                }
+                said[i] = Some(s);
+            }
+            // Out of time, or every place is done: the best so far.
+            Err(_) => {
+                let done: Vec<bool> = (0..3).map(|i| asking[i] && said[i].is_some()).collect();
+                break settle(&said, &done, q.avoid).flatten();
+            }
+        }
+    };
+    let answered = said.iter().filter(|s| matches!(s, Some(Said::Found(_) | Said::Nothing))).count();
+    let heard = Heard {
+        answered,
+        complete: (0..3).all(|i| !asking[i] || matches!(said[i], Some(Said::Found(_) | Said::Nothing))),
+        busy: matches!(said[1], Some(Said::Failed { busy: true })),
+    };
+    // A place that failed while another answered is the problem, not the connection: leave it
+    // alone for a while. A busy LRCLIB gets asked again (it usually clears up quickly).
+    if answered > 0 {
+        let mut rest = RESTING.lk();
+        for (i, s) in said.iter().enumerate() {
+            if matches!(s, Some(Said::Failed { busy: false })) {
+                eprintln!("lyrics: {:?} didn't answer; leaving it alone for a while", SOURCES[i]);
+                rest[i] = Some(Instant::now() + REST);
+            }
+        }
+    }
+    let found = pick.and_then(|i| match said[i].take() {
+        Some(Said::Found(l)) => Some((SOURCES[i], l)),
+        _ => None,
+    });
+    (found, heard)
+}
+
+fn ask_source(src: Source, q: &Query) -> Said {
+    let said = match src {
+        Source::YtMusic => from_ytmusic(q).map_err(|e| (e, false)),
+        Source::Lrclib => from_lrclib(q).map_err(|f| match f {
+            Fail::Busy => ("busy".to_string(), true),
+            Fail::Offline(e) => (e, false),
+        }),
+        Source::NetEase => from_netease(q).map_err(|e| (e, false)),
+    };
+    match said {
+        Ok(Some(l)) if !l.lines.is_empty() => Said::Found(l),
+        Ok(_) => Said::Nothing,
+        Err((e, busy)) => {
+            eprintln!("lyrics: {src:?}: {e}");
+            Said::Failed { busy }
+        }
+    }
+}
+
+/// Timed lines from YouTube Music, tidied like any `.lrc` (pauses kept, none at the edges).
+fn from_lines(lines: Vec<(f32, String)>) -> Lyrics {
+    let lines = lines
+        .into_iter()
+        .map(|(t, w)| (t, if w.chars().all(|c| matches!(c, '♪' | '♫' | '♬') || c.is_whitespace()) { String::new() } else { w }))
+        .collect();
+    parse_lrc(&Lyrics { lines, synced: true }.to_lrc())
+}
+
+fn from_words(w: crate::ytmusic::Words, fits: bool) -> Lyrics {
+    match w {
+        crate::ytmusic::Words::Timed(lines) if fits => from_lines(lines),
+        // Timed for another cut of the song: the words are still right.
+        crate::ytmusic::Words::Timed(lines) => Lyrics::plain(&lines.into_iter().map(|(_, w)| w).collect::<Vec<_>>().join("\n")),
+        crate::ytmusic::Words::Plain(text) => Lyrics::plain(&text),
+    }
+}
+
+/// YouTube Music. The video the song plays from, when known: if it's the official song, its own
+/// lyrics. If it's a music video, its song (found by YouTube Music's clean names for it), whose
+/// timing only counts when it's the same length. Without a video, the song found by name.
+fn from_ytmusic(q: &Query) -> Result<Option<Lyrics>, String> {
+    use crate::ytmusic as ytm;
+    let dur = q.duration;
+    let fits = |d: f32| dur <= 0.0 || d <= 0.0 || (d - dur).abs() <= YTM_DRIFT;
+    // A music video's own words, if its song has none: never timed.
+    let mut video_words: Option<String> = None;
+    let names = match q.video.as_deref() {
+        Some(id) => {
+            let t = ytm::track(id)?;
+            if t.song {
+                let Some(b) = &t.lyrics else { return Ok(None) };
+                return Ok(ytm::lyrics(b)?.map(|w| from_words(w, fits(t.duration))));
+            }
+            video_words = t.lyrics.clone();
+            (t.title, t.artist)
+        }
+        None => match name_pairs(&q.title, &q.artist, q.from_video).into_iter().next() {
+            Some(p) => p,
+            None => return Ok(None),
+        },
+    };
+    let (song, artist) = names;
+    let words = format!("{song} {}", primary_artist(&artist)).trim().to_string();
+    let found = if words.is_empty() { Vec::new() } else { ytm::search_songs(&words)? };
+    let twin = found.iter().find(|s| same_song(&s.title, &song) && (artist.is_empty() || same_artist(&s.artist, &artist)) && fits(s.duration));
+    if let Some(s) = twin {
+        let t = ytm::track(&s.id)?;
+        if let Some(b) = &t.lyrics {
+            if let Some(w) = ytm::lyrics(b)? {
+                return Ok(Some(from_words(w, fits(t.duration.max(s.duration)))));
+            }
+        }
+    }
+    match video_words {
+        Some(b) => Ok(ytm::lyrics(&b)?.map(|w| from_words(w, false))),
+        None => Ok(None),
+    }
+}
+
+/// NetEase: the song by name and about the same length, and only its timed lyrics (the rest of
+/// what it has, the other places have too).
+fn from_netease(q: &Query) -> Result<Option<Lyrics>, String> {
+    let Some((song, artist)) = name_pairs(&q.title, &q.artist, q.from_video).into_iter().next() else { return Ok(None) };
+    let dur = q.duration;
+    let found = crate::netease::search(format!("{song} {}", primary_artist(&artist)).trim())?;
+    let twin = found.iter().find(|s| {
+        same_song(&s.title, &song) && (artist.is_empty() || same_artist(&s.artist, &artist)) && (dur <= 0.0 || (s.duration - dur).abs() <= MAX_DRIFT)
+    });
+    let Some(s) = twin else { return Ok(None) };
+    let Some(lrc) = crate::netease::lyrics(s.id)? else { return Ok(None) };
+    let l = parse_lrc(&lrc);
+    // "纯音乐，请欣赏" (an instrumental) and other one-liners aren't lyrics.
+    let lines = l.lines.iter().filter(|(_, w)| !w.is_empty()).count();
+    let timed = l.lines.iter().any(|(t, _)| *t > 0.0);
+    Ok((l.synced && timed && lines > 2).then_some(l))
 }
 
 /// Delete saved lyrics nobody has needed for months, so the folder doesn't grow forever.
@@ -1208,7 +1454,7 @@ mod tests {
     }
 
     fn query(id: u64, force: bool) -> Query {
-        Query { id, song: None, title: "t".into(), artist: "a".into(), from_video: false, duration: 100.0, force, beside: false, avoid: None, ahead: false }
+        Query { id, song: None, title: "t".into(), artist: "a".into(), from_video: false, video: None, duration: 100.0, force, beside: false, avoid: None, ahead: false }
     }
 
     /// Runs the worker loop with a pretend LRCLIB that finds every song on the second ask.
@@ -1292,6 +1538,7 @@ mod tests {
             title: "x".into(),
             artist: "y".into(),
             from_video: false,
+            video: None,
             duration: 100.0,
             force: false,
             beside: true,
@@ -1303,5 +1550,90 @@ mod tests {
             s => panic!("{s:?}"),
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn timed(w: &str) -> Lyrics {
+        Lyrics { lines: vec![(1.0, w.into())], synced: true }
+    }
+
+    fn plain(w: &str) -> Lyrics {
+        Lyrics { lines: vec![(0.0, w.into())], synced: false }
+    }
+
+    #[test]
+    fn the_most_trusted_answer_wins_without_waiting_for_worse() {
+        let all = [true, true, true];
+        // YouTube Music's timed lyrics: nothing could beat them, so no waiting for the others.
+        assert_eq!(settle(&[Some(Said::Found(timed("a"))), None, None], &all, None), Some(Some(0)));
+        // LRCLIB's timed lyrics: YouTube Music could still have better ones, NetEase couldn't.
+        assert_eq!(settle(&[None, Some(Said::Found(timed("b"))), None], &all, None), None);
+        assert_eq!(settle(&[Some(Said::Nothing), Some(Said::Found(timed("b"))), None], &all, None), Some(Some(1)));
+        // Timed lyrics from anywhere beat plain ones from YouTube Music.
+        let said = [Some(Said::Found(plain("a"))), Some(Said::Failed { busy: true }), Some(Said::Found(timed("c")))];
+        assert_eq!(settle(&said, &all, None), Some(Some(2)));
+        // Plain lyrics wait for everyone, since anyone might have timed ones.
+        assert_eq!(settle(&[Some(Said::Found(plain("a"))), None, Some(Said::Nothing)], &all, None), None);
+        // A place resting isn't waited for.
+        assert_eq!(settle(&[None, Some(Said::Found(timed("b"))), None], &[false, true, true], None), Some(Some(1)));
+        // "Wrong lyrics?": those words are passed over.
+        let wrong = timed("a").words_key();
+        assert_eq!(settle(&[Some(Said::Found(timed("a"))), Some(Said::Found(timed("b"))), Some(Said::Nothing)], &all, Some(wrong)), Some(Some(1)));
+        assert_eq!(settle(&[Some(Said::Nothing), Some(Said::Nothing), Some(Said::Nothing)], &all, None), Some(None));
+    }
+
+    #[test]
+    fn youtube_music_lines_are_tidied() {
+        let l = from_lines(vec![(0.0, "♪".into()), (1.11, "First".into()), (4.0, "♪".into()), (6.5, "Second".into()), (9.0, " ♪ ".into())]);
+        assert!(l.synced);
+        assert_eq!(l.lines, vec![(1.11, "First".into()), (4.0, String::new()), (6.5, "Second".into())]);
+        // Timed for another cut: kept as words only.
+        let w = from_words(crate::ytmusic::Words::Timed(vec![(1.0, "One".into()), (2.0, "Two".into())]), false);
+        assert!(!w.synced);
+        assert_eq!(w.lines.len(), 2);
+    }
+
+    /// The shared list of hard songs (tests/data/tricky-songs.json, also used by the Android
+    /// app), asked for real. Needs the internet, so it runs on GitHub ("Lyrics live check"):
+    /// `cargo test --release -- --ignored --nocapture live_`.
+    #[test]
+    #[ignore]
+    fn live_tricky_songs() {
+        #[derive(Deserialize)]
+        struct Case {
+            title: String,
+            artist: String,
+            duration: f32,
+            #[serde(default)]
+            video: Option<String>,
+            #[serde(default)]
+            from_video: bool,
+            expect: String,
+        }
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/tricky-songs.json");
+        let cases: Vec<Case> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut wrong = Vec::new();
+        for c in cases {
+            let q = Query { title: c.title.clone(), artist: c.artist.clone(), from_video: c.from_video, video: c.video.clone(), duration: c.duration, ..Default::default() };
+            let at = Instant::now();
+            let (found, heard) = ask_all(&q);
+            let got = match &found {
+                Some((src, l)) => {
+                    let first = l.lines.iter().find(|(_, w)| !w.is_empty()).map_or(String::new(), |(t, w)| format!("{t:.2}s \"{w}\""));
+                    format!("{} from {src:?}, {} lines, first {first}", if l.synced { "timed" } else { "plain" }, l.lines.len())
+                }
+                None => "nothing".into(),
+            };
+            println!("{} – {}\n    {got}  ({:.1}s, {heard:?})", c.artist, c.title, at.elapsed().as_secs_f32());
+            let ok = match c.expect.as_str() {
+                "timed" => found.as_ref().is_some_and(|(_, l)| l.synced),
+                "words" => found.is_some(),
+                "none" => found.is_none(),
+                _ => true,
+            };
+            if !ok {
+                wrong.push(format!("{} – {}: wanted {}, got {got}", c.artist, c.title, c.expect));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 }

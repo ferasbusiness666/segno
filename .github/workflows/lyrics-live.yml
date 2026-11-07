@@ -1,0 +1,18 @@
+name: Lyrics live check
+
+# Looks up the hard songs in tests/data/tricky-songs.json for real, through Segno's own lyrics
+# code, and shows which place each answer came from. Run by hand from the Actions tab.
+on:
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install what the build needs
+        run: sudo apt-get update -q && sudo apt-get install -yq libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Ask for the tricky songs
+        run: cargo test --release -- --ignored --nocapture live_
