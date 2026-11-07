@@ -40,7 +40,11 @@ def walk(v, key, out):
     return out
 
 def runs(t):
-    return "".join(r.get("text", "") for r in (t or {}).get("runs", []))
+    if isinstance(t, str):
+        return t
+    if not isinstance(t, dict):
+        return ""
+    return t.get("simpleText") or "".join(r.get("text", "") for r in t.get("runs", []))
 
 def rows(answer):
     out = []
@@ -124,6 +128,9 @@ def netease(label, query):
         print(f"  FAILED {e}")
 
 for label, q in (("getlucky", "daft punk get lucky"), ("thickofit", "ksi thick of it"), ("shoftkalam", "marwan pablo shoft kalam"), ("blindinglights", "the weeknd blinding lights")):
-    probe(label, q)
+    try:
+        probe(label, q)
+    except Exception as e:
+        import traceback; traceback.print_exc()
 for label, q in (("getlucky", "get lucky daft punk"), ("blindinglights", "blinding lights the weeknd"), ("shoftkalam", "marwan pablo")):
     netease(label, q)
