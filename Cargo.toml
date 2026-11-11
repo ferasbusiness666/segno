@@ -1,6 +1,6 @@
 [package]
 name = "segno"
-version = "1.1.22"
+version = "1.1.23"
 edition = "2021"
 description = "Segno - a light music player for Windows"
 license = "MIT"
@@ -10,7 +10,7 @@ homepage = "https://segnomusic.app"
 [dependencies]
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "x11"] }
 egui = "0.36"
-rodio = { version = "0.23", default-features = false, features = ["playback", "symphonia-aac", "symphonia-isomp4", "symphonia-mp3", "symphonia-flac", "symphonia-vorbis", "symphonia-wav", "symphonia-alac", "symphonia-aiff"] }
+rodio = { version = "0.23", default-features = false, features = ["playback", "symphonia-aac", "symphonia-isomp4", "symphonia-mp3", "symphonia-flac", "symphonia-vorbis", "symphonia-wav", "symphonia-pcm", "symphonia-alac", "symphonia-aiff"] }
 lofty = "0.25"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 rfd = "0.17"

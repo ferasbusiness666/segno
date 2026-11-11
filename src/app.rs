@@ -337,6 +337,7 @@ impl App {
         let loved = settings.loved.iter().map(|p| path_id(p)).collect();
 
         player.send(Cmd::SetVolume(settings.volume));
+        player.eq.set(settings.eq_on, &settings.eq_gains);
         player.send(Cmd::SetMuted(settings.muted));
         player.send(Cmd::SetRepeat(settings.repeat));
         player.send(Cmd::SetAutoplay(settings.autoplay));
@@ -2784,7 +2785,8 @@ impl App {
 
         // Right: queue, mini, volume
         let mut rx = rect.right() - pad;
-        let vol_w = 96.0;
+        // Five buttons beside the volume; a narrow window gets a shorter volume slider.
+        let vol_w = (right_w - pad - 5.0 * (32.0 + S1)).clamp(56.0, 96.0);
         let vol_r = Rect::from_min_max(pos2(rx - vol_w, rect.center().y - 6.0), pos2(rx, rect.center().y + 6.0));
         rx = vol_r.left() - S1;
         let vr = Rect::from_center_size(pos2(rx - 16.0, rect.center().y), Vec2::splat(32.0));
@@ -2817,6 +2819,9 @@ impl App {
         rx = qr.left() - S1;
         let sr = Rect::from_center_size(pos2(rx - 16.0, rect.center().y), Vec2::splat(32.0));
         self.sleep_button(ui, sr);
+        rx = sr.left() - S1;
+        let er = Rect::from_center_size(pos2(rx - 16.0, rect.center().y), Vec2::splat(32.0));
+        self.eq_button(ui, er);
         seek.width()
     }
 

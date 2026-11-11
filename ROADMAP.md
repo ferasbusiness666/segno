@@ -127,14 +127,22 @@ In this order:
 - 🟡 **Preview cache**: no mix-ups between songs (1.1.9). A size limit in Settings only if it turns out to grow big (it clears after 3 days)
 - ✅ **Synced lyrics** (1.1.12): lines scroll and light up with the song (free from LRCLIB), straight on the background beside the record on Now Playing and full screen, click a line to jump, Arabic reads right to left; your own .lrc file next to a song wins. 1.1.13: Try again, plain lyrics when there are no timed ones, slowed/sped-up versions stretch the original, much better matching for YouTube titles (checked against LRCLIB with real songs). 1.1.16: lyrics in every language (Japanese, Chinese, Korean, Thai, Hindi… with Windows' own fonts, loaded only when needed), "Wrong lyrics?", timed lyrics saved as .lrc next to songs, better exact matching. Next idea: pick from a list of matches
 - 🟡 **Online songs start sooner**: 1.1.19 keeps yt-dlp's cache (it used to re-solve YouTube's player code for every song) and searches YouTube directly (no yt-dlp start per search). 1.1.21 plays a song while it's still coming in (from about 256 KB, read as the file grows; seeking waits for the whole file). Maybe later: yt-dlp's unpacked Windows build (yt-dlp_win.zip) so it doesn't unpack itself on every start
-- ⬜ **Volume levelling**: loud and quiet songs play at the same level (later, to get it right)
-- ⬜ **Crossfade and gapless playback**: no gap between album songs (later, to get it right)
+- ⬜ **Volume levelling** (next, on by default): loud and quiet songs play at the same level.
+  Each song's loudness measured once in the background and remembered; albums keep their own
+  loud and quiet parts
+- ⬜ **Crossfade and gapless playback** (after levelling): no gap between album songs, always.
+  Crossfade off by default, a 1–12 s slider in Settings; albums never crossfade
 - ✅ **No stutter when the laptop lags** (1.1.21): songs are decoded (and converted to the
   output's format) 2–3 s ahead on their own thread, which runs above normal priority; the audio
   callback only copies samples out of a lock-free buffer (`ahead.rs`). The audio thread asks
   Windows for audio priority (MMCSS, cpal's "realtime"). Seeks are handed to the decode thread.
   Crossfade, gapless and levelling build on this later.
-- ⬜ **Equalizer**: presets (Bass boost, Vocal, Rock…) and custom sliders. **Top of the list, with the sleep timer.**
+- ✅ **Equalizer** (1.1.23): a sliders button beside the moon opens a pop-up with an on/off
+  switch, 9 presets, your own curve (kept as "Custom") and 10 sliders (31 Hz–16 kHz, ±12 dB) with
+  the real curve drawn behind them. Runs on the audio thread after decode-ahead, so changes are
+  heard at once and glide over 60 ms. The filters' own gains are solved so the sound at each band
+  is exactly what its slider says. The music is turned down by the curve's biggest boost, so it
+  never clips. Flat or off leaves the music untouched. About 0.2% of one core.
 - ✅ **Sleep timer** (1.1.20): a moon in the player bar opens a small menu: 15 / 30 / 45 min, 1 hour or end of song. The last 30 s fade out, then it pauses and the volume goes back for next time. +10 min, turn off, and touching anything during the fade cancels it. Runs in the audio engine, so it works with the window in the tray
 - ✅ **Discord status** (1.1.20): "Listening to Segno" with the song, artist, cover, a time bar and a "Get Segno" button, through the Discord app on the same PC (looks for it every 20 s). Cleared on pause. On by default with a one-time note; off in Settings → Playback
 - ✅ **Wrong song? Pick another** (1.1.18): Spotify songs that play the wrong YouTube video: pick the right one from the results (same length as on Spotify is marked), remembered everywhere. The first guess also skips live, cover, sped-up and other versions unless the song itself is one
@@ -215,8 +223,8 @@ In this order of trust:
 - 🟡 "Wrong lyrics?" and "Wrong song? Pick another" on both apps (desktop has both).
 
 ### Step 5: Android gets lyrics
-- ⬜ The same engine in Kotlin, lyrics in Now Playing (the current line large, tap a line to jump
-  there), and the same fixes. Kept light for weak phones: the line-up in Step 3 only runs when the
+- ✅ The same engine in Kotlin, lyrics in Now Playing (the current line large, tap a line to jump
+  there), and the same fixes. (Android 1.1.0) Kept light for weak phones: the line-up in Step 3 only runs when the
   lyrics are open and the lengths don't match.
 
 Order: Step 1 on both apps → Steps 2 and 4 on desktop → Step 5 (Android, with the same rules) →
@@ -237,7 +245,7 @@ Step 3's line-up, desktop first.
 ## More platforms
 
 - ⬜ **Linux** (promised as "coming soon" on the website)
-- 🟡 **Android**: built (Segno-Android repo), 1.0.0 ships with Back up and restore and the two search buttons; lyrics come in 1.1
+- 🟡 **Android**: built (Segno-Android repo). 1.0.0: Back up and restore, the two search buttons. 1.1.0: lyrics from the same three places as desktop
 - ⬜ Mac: not planned yet, ask by email
 
 ---

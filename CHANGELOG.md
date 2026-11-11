@@ -9,6 +9,14 @@ Each version starts with "## <version>" (the same as in Cargo.toml). Inside, use
 "### New", "### Better" or "### Fixed", with one "- " line per change. Keep lines short.
 -->
 
+## 1.1.23
+
+### New
+- An equalizer. Press the sliders button beside the moon in the player bar: pick a preset (Bass boost, Vocal, Rock and more) or make your own with ten sliders. You hear every change the moment you make it, and boosting never distorts.
+
+### Fixed
+- WAV and AIFF files play now. They were skipped.
+
 ## 1.1.22
 
 ### New

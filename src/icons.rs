@@ -44,6 +44,8 @@ pub const INFO: &str = "\u{E0F9}";
 pub const LYRICS: &str = "lyrics";
 /// Not in the icon font: a crescent moon (the sleep timer), drawn like Lucide's.
 pub const MOON: &str = "moon";
+/// Not in the icon font: three sliders (the equalizer), like Lucide's "sliders-vertical".
+pub const SLIDERS: &str = "sliders";
 
 /// Paint a line icon centered at `c`, `size` points tall.
 pub fn glyph(p: &Painter, c: Pos2, icon: &str, size: f32, color: Color32) {
@@ -57,6 +59,10 @@ pub fn glyph(p: &Painter, c: Pos2, icon: &str, size: f32, color: Color32) {
     }
     if icon == MOON {
         moon(p, c, size, color);
+        return;
+    }
+    if icon == SLIDERS {
+        sliders(p, c, size, color);
         return;
     }
     p.text(c, Align2::CENTER_CENTER, icon, FontId::new(size, crate::theme::icon_family()), color);
@@ -74,6 +80,20 @@ fn moon(p: &Painter, c: Pos2, size: f32, color: Color32) {
     let mut pts: Vec<Pos2> = (0..=27).map(|i| at(12.0, 12.0, 9.0, i as f32 * 10.0)).collect();
     pts.extend((1..18).map(|i| at(16.5, 7.5, bite, 225.0 - i as f32 * 10.0)));
     p.add(PathShape::closed_line(pts, Stroke::new(2.0 * k, color)));
+}
+
+/// Three upright lines with a short bar across each at a different height, on Lucide's
+/// 24-unit grid.
+fn sliders(p: &Painter, c: Pos2, size: f32, color: Color32) {
+    let k = size / 24.0;
+    let at = |x: f32, y: f32| c + vec2((x - 12.0) * k, (y - 12.0) * k);
+    let st = Stroke::new(2.0 * k, color);
+    for (x, knob) in [(5.0, 14.0), (12.0, 8.0), (19.0, 16.0)] {
+        p.line_segment([at(x, 3.0), at(x, knob - 2.0)], st);
+        p.line_segment([at(x, knob + 2.0), at(x, 21.0)], st);
+        p.line_segment([at(x - 2.5, knob - 2.0), at(x + 2.5, knob - 2.0)], st);
+        p.line_segment([at(x - 2.5, knob + 2.0), at(x + 2.5, knob + 2.0)], st);
+    }
 }
 
 /// Solid play triangle with softly rounded corners, optically centered.

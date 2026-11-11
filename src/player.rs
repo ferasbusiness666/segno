@@ -213,6 +213,8 @@ pub struct PlayerHandle {
     /// Asks for a streamed song's file (by track id). The answer comes back as `Cmd::Fetched`
     /// or `Cmd::FetchFailed`, straight to this thread, so it works while the window sleeps.
     pub fetcher: Fetcher,
+    /// The equalizer's curve: set from the window, heard at once.
+    pub eq: Arc<crate::eq::EqShared>,
 }
 
 pub type Fetcher = Arc<Mutex<Option<Arc<dyn Fn(u64) + Send + Sync>>>>;
@@ -243,12 +245,14 @@ pub fn spawn(notify: Arc<dyn Fn() + Send + Sync>) -> PlayerHandle {
     let live = Arc::new(Mutex::new(None));
     let library = Arc::new(Mutex::new(Vec::new()));
     let fetcher: Fetcher = Arc::new(Mutex::new(None));
+    let eq = Arc::new(crate::eq::EqShared::default());
     let handle = PlayerHandle {
         tx: tx.clone(),
         state: state.clone(),
         live: live.clone(),
         library: library.clone(),
         fetcher: fetcher.clone(),
+        eq: eq.clone(),
     };
     std::thread::Builder::new()
         .name("audio".into())
@@ -268,6 +272,7 @@ pub fn spawn(notify: Arc<dyn Fn() + Send + Sync>) -> PlayerHandle {
                 fade: None,
                 arriving: Default::default(),
                 growing: None,
+                eq,
             };
             eng.run(rx);
         })
@@ -421,6 +426,7 @@ struct Engine {
     /// The song that's loaded plays from a file that was still downloading when it started
     /// (it can't seek until the whole file is here).
     growing: Option<Arc<crate::growing::Download>>,
+    eq: Arc<crate::eq::EqShared>,
 }
 
 impl Engine {
@@ -734,7 +740,9 @@ impl Engine {
         if !autoplay {
             player.pause();
         }
-        player.append(Fader { inner: ahead, ctl: fade.clone(), gain: 0.0, at: 0 });
+        // Through the equalizer on the audio thread, after the decoding, so changes are instant.
+        let eq = crate::eq::Eq::new(ahead, self.eq.clone());
+        player.append(Fader { inner: eq, ctl: fade.clone(), gain: 0.0, at: 0 });
         self.fade = Some(fade);
         let gen = self.gen;
         let tx = self.tx.clone();
@@ -1431,5 +1439,37 @@ mod tests {
             assert!(!sleep_fading(s, now));
             assert_eq!(sleep_wake(s, now), None);
         }
+    }
+
+    #[test]
+    fn wav_files_play() {
+        // 16-bit stereo PCM, the plainest WAV there is: 0.1 s of a quiet tone.
+        let (rate, frames) = (44_100u32, 4_410u32);
+        let data: Vec<u8> = (0..frames)
+            .flat_map(|i| {
+                let v = ((i as f32 * 0.06).sin() * 8000.0) as i16;
+                [v.to_le_bytes(), v.to_le_bytes()].concat()
+            })
+            .collect();
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&rate.to_le_bytes());
+        wav.extend_from_slice(&(rate * 4).to_le_bytes());
+        wav.extend_from_slice(&4u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&data);
+        let path = std::env::temp_dir().join(format!("segno-wav-{}.wav", std::process::id()));
+        std::fs::write(&path, wav).unwrap();
+        // It needs the PCM decoder (rodio's "symphonia-pcm"), which WAV and AIFF both use.
+        let song = open_file(&path).expect("a WAV file opens");
+        assert_eq!(song.count(), (frames * 2) as usize);
+        let _ = std::fs::remove_file(path);
     }
 }

@@ -19,6 +19,8 @@ mod foryou;
 mod growing;
 mod changelog;
 mod discord;
+mod eq;
+mod equalizer;
 mod drag;
 mod stream;
 mod store;

@@ -152,6 +152,11 @@ pub struct Settings {
     pub discord_told: bool,
     /// Search YouTube Music (songs, clean names) instead of YouTube (every video).
     pub search_music: bool,
+    /// The equalizer: on or off, the curve playing, and the user's own curve (kept when they
+    /// try a preset, so "Custom" brings it back).
+    pub eq_on: bool,
+    pub eq_gains: [f32; 10],
+    pub eq_custom: [f32; 10],
 }
 
 impl Default for Settings {
@@ -186,6 +191,9 @@ impl Default for Settings {
             discord_status: true,
             discord_told: false,
             search_music: true,
+            eq_on: false,
+            eq_gains: [0.0; 10],
+            eq_custom: [0.0; 10],
         }
     }
 }
